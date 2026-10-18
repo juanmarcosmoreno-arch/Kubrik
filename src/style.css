@@ -1,0 +1,250 @@
+/* Estilos de la interfaz de Megabrick (HUD y menús sobre el canvas). */
+
+:root {
+  /* Colores de la marca, tomados del logo. */
+  --bg-logo: #0a0a0a; /* fondo del logo oscuro */
+  --cream: #f0eae4; /* "MEGA" */
+  --lime: #a6cc0c; /* "BRICK" */
+  --lime-deep: #6f9400;
+  --green: #4e9c00;
+  --muted: #a9a49d;
+  --panel: rgba(12, 14, 12, 0.82);
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+  --font-display: 'Arial Black', 'Segoe UI Black', 'Helvetica Neue', Impact, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-logo);
+  font-family: var(--font-ui);
+  color: #fff;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+#game,
+#game canvas {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- HUD ---------- */
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hud-fps {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  font: 600 13px/1.4 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: #e8f1ff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- Pantallas (inicio y pausa) ---------- */
+
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Inicio: logo centrado sobre el mismo negro de su fondo. */
+#title-screen {
+  justify-content: center;
+  overflow-y: auto;
+  background: var(--bg-logo);
+  color: var(--cream);
+}
+
+.title-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  max-width: 100%;
+}
+
+.title-logo {
+  margin: 0;
+  line-height: 0;
+}
+
+/* El logo se achica para que botón y ayuda siempre entren en pantalla. */
+.title-logo img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(640px, 86vw);
+  max-height: calc(100vh - 250px);
+  min-height: 160px;
+  object-fit: contain;
+  -webkit-user-drag: none;
+  /* Bordes desvanecidos: el fondo de la imagen se funde con el de la página. */
+  --fade: linear-gradient(to right, transparent, #000 4%, #000 96%, transparent),
+    linear-gradient(to bottom, transparent, #000 4%, #000 96%, transparent);
+  -webkit-mask-image: var(--fade);
+  -webkit-mask-composite: source-in;
+  mask-image: var(--fade);
+  mask-composite: intersect;
+}
+
+.tagline {
+  margin: 0 0 4px;
+  font-size: clamp(14px, 2vw, 18px);
+  color: var(--muted);
+}
+
+.btn {
+  font: 800 18px/1 var(--font-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 14px 44px;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #0a0a0a;
+  background: var(--lime);
+  /* Borde inferior más oscuro: aspecto de bloque. */
+  box-shadow:
+    inset 0 -5px 0 var(--lime-deep),
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    0 6px 16px rgba(0, 0, 0, 0.18);
+  transition:
+    transform 0.08s ease,
+    filter 0.15s ease;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  filter: grayscale(1) brightness(0.7);
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn:active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 -2px 0 var(--lime-deep),
+    0 3px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn:focus-visible {
+  outline: 3px solid var(--cream);
+  outline-offset: 3px;
+}
+
+.msg {
+  min-height: 1.2em;
+  margin: 0;
+  font-size: 14px;
+  color: #ffb4a8;
+  text-align: center;
+}
+
+.note {
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(166, 204, 12, 0.14);
+  font-size: 14px;
+  color: var(--cream);
+  text-align: center;
+}
+
+.controls-help {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 16px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  margin-right: 2px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid rgba(240, 234, 228, 0.22);
+  border-bottom-width: 3px;
+  background: rgba(240, 234, 228, 0.08);
+  font: 700 12px/1.4 var(--font-ui);
+  text-align: center;
+  color: var(--cream);
+}
+
+/* Pausa: velo oscuro sobre el juego congelado. */
+#pause-screen {
+  justify-content: center;
+  background: rgba(6, 8, 6, 0.55);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 36px;
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  cursor: default;
+  max-width: calc(100% - 32px);
+}
+
+.panel h2 {
+  margin: 0;
+  font: 900 34px/1 var(--font-display);
+  letter-spacing: 0.06em;
+  color: var(--cream);
+}
+
+.panel .hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.fatal-error {
+  position: fixed;
+  inset: auto 16px 16px;
+  z-index: 10;
+  padding: 16px;
+  border-radius: 8px;
+  background: #5c1d1d;
+  color: #fff;
+  font-size: 15px;
+}

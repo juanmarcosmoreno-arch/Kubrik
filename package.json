@@ -1,0 +1,32 @@
+{
+  "name": "megabrick",
+  "version": "1.0.0",
+  "description": "Megabrick: juego sandbox de bloques en primera persona para el navegador",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juanmarcosmoreno-arch/Kubrik.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/juanmarcosmoreno-arch/Kubrik/issues"
+  },
+  "homepage": "https://github.com/juanmarcosmoreno-arch/Kubrik#readme",
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "vite": "^7.3.7"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  }
+}

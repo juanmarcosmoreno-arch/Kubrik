@@ -1,0 +1,25 @@
+# Dependencias
+node_modules/
+
+# Build de producción
+dist/
+dist-ssr/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editores y sistema
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Variables de entorno locales
+.env
+.env.*
+!.env.example
+
+# Capturas temporales de pruebas
+/screenshots-tmp/

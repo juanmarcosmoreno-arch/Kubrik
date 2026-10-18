@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Megabrick: juego sandbox de bloques en primera persona para el navegador." />
+    <meta name="theme-color" content="#0a0a0a" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>Megabrick</title>
+  </head>
+  <body>
+    <!-- Canvas de Three.js -->
+    <div id="game"></div>
+
+    <!-- HUD (FPS; más adelante mira, hotbar y coordenadas) -->
+    <div id="hud" hidden></div>
+
+    <!-- Pantalla de inicio -->
+    <div id="title-screen" class="screen">
+      <div class="title-content">
+        <h1 class="title-logo">
+          <img src="/logo/megabrick-oscuro.webp" alt="Megabrick" width="748" height="590" draggable="false" />
+        </h1>
+        <p class="tagline">Construí tu mundo, bloque a bloque</p>
+        <div class="title-actions">
+          <button id="btn-play" class="btn btn-primary" type="button">Jugar</button>
+        </div>
+        <p id="title-msg" class="msg" role="status"></p>
+        <p id="device-note" class="note" hidden>Megabrick se juega en PC o Mac, con teclado y mouse.</p>
+        <ul class="controls-help">
+          <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> moverse</li>
+          <li><kbd>Mouse</kbd> mirar</li>
+          <li><kbd>Espacio</kbd> subir</li>
+          <li><kbd>Shift</kbd> bajar</li>
+          <li><kbd>Esc</kbd> pausa</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Menú de pausa -->
+    <div id="pause-screen" class="screen" hidden>
+      <div class="panel">
+        <h2>Pausa</h2>
+        <button id="btn-resume" class="btn btn-primary" type="button">Continuar</button>
+        <p class="hint">También podés hacer clic en cualquier parte de la pantalla.</p>
+        <p id="pause-msg" class="msg" role="status"></p>
+      </div>
+    </div>
+
+    <noscript>Megabrick necesita JavaScript activado para funcionar.</noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
