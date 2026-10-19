@@ -14,6 +14,11 @@ export class Controls {
     this.mouseDX = 0;
     this.mouseDY = 0;
     this.wheel = 0;
+    this._wheelAcc = 0; // píxeles acumulados dentro de un gesto de la rueda
+    this._wheelTime = -Infinity;
+    this._lockedAt = -Infinity; // momento en que se capturó el mouse
+    this.buttons = new Set(); // botones del mouse apretados (0 izq., 2 der.)
+    this.clicked = new Set(); // botones apretados en este frame
     this.locked = false;
     this.sensitivity = 0.0022; // radianes por píxel de movimiento del mouse
 
@@ -29,6 +34,11 @@ export class Controls {
     this._onLockChange = this._onLockChange.bind(this);
     this._onLockError = this._onLockError.bind(this);
     this._onBlur = this._onBlur.bind(this);
+    this._onMouseDown = this._onMouseDown.bind(this);
+    this._onMouseUp = this._onMouseUp.bind(this);
+    this._onContextMenu = (e) => {
+      if (this.locked) e.preventDefault();
+    };
 
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
@@ -37,6 +47,9 @@ export class Controls {
     document.addEventListener('pointerlockchange', this._onLockChange);
     document.addEventListener('pointerlockerror', this._onLockError);
     window.addEventListener('blur', this._onBlur);
+    document.addEventListener('mousedown', this._onMouseDown);
+    document.addEventListener('mouseup', this._onMouseUp);
+    document.addEventListener('contextmenu', this._onContextMenu);
   }
 
   /** Captura el mouse. Debe llamarse desde un evento del usuario (clic). */
@@ -69,6 +82,16 @@ export class Controls {
     return this.justPressed.has(code);
   }
 
+  /** ¿El botón del mouse (0 izquierdo, 2 derecho) está apretado? */
+  isMouseDown(button) {
+    return this.buttons.has(button);
+  }
+
+  /** ¿Se apretó el botón del mouse en este frame? */
+  wasClicked(button) {
+    return this.clicked.has(button);
+  }
+
   /** Devuelve y reinicia el movimiento del mouse acumulado desde el último frame. */
   consumeMouse() {
     const d = { dx: this.mouseDX, dy: this.mouseDY };
@@ -87,6 +110,7 @@ export class Controls {
   /** Se llama al final de cada frame para limpiar las teclas "recién apretadas". */
   endFrame() {
     this.justPressed.clear();
+    this.clicked.clear();
   }
 
   dispose() {
@@ -97,6 +121,9 @@ export class Controls {
     document.removeEventListener('pointerlockchange', this._onLockChange);
     document.removeEventListener('pointerlockerror', this._onLockError);
     window.removeEventListener('blur', this._onBlur);
+    document.removeEventListener('mousedown', this._onMouseDown);
+    document.removeEventListener('mouseup', this._onMouseUp);
+    document.removeEventListener('contextmenu', this._onContextMenu);
   }
 
   // --- Manejadores de eventos ---------------------------------------------
@@ -122,14 +149,51 @@ export class Controls {
     this.mouseDY += e.movementY || 0;
   }
 
+  _onMouseDown(e) {
+    // Solo cuenta con el mouse capturado: el clic que captura el mouse (en
+    // "Jugar" o en la pausa) no rompe ni pone bloques.
+    if (!this.locked) return;
+    e.preventDefault();
+    // El segundo clic de un doble clic en "Jugar" o en la pausa llega ya con
+    // el mouse capturado: se ignora para no romper un bloque sin querer.
+    if (performance.now() - this._lockedAt < 300) return;
+    this.buttons.add(e.button);
+    this.clicked.add(e.button);
+  }
+
+  _onMouseUp(e) {
+    this.buttons.delete(e.button);
+  }
+
+  /**
+   * Rueda del mouse: cada muesca avanza una casilla. Un trackpad (o la
+   * rueda suave de Mac) manda muchos eventos chicos por gesto: el primero
+   * avanza una casilla y después se acumulan píxeles hasta otro paso.
+   */
   _onWheel(e) {
     if (!this.locked) return;
     e.preventDefault();
-    this.wheel += Math.sign(e.deltaY);
+    if (!e.deltaY) return;
+    // En píxeles, aunque el navegador informe líneas o páginas.
+    const px = e.deltaMode === 0 ? e.deltaY : e.deltaY * (e.deltaMode === 1 ? 100 / 3 : 300);
+    const newGesture =
+      e.timeStamp - this._wheelTime > 150 || Math.sign(px) !== Math.sign(this._wheelAcc || px);
+    this._wheelTime = e.timeStamp;
+    if (newGesture) {
+      this._wheelAcc = 0;
+      this.wheel += Math.sign(px);
+      return;
+    }
+    this._wheelAcc += px;
+    if (Math.abs(this._wheelAcc) >= 75) {
+      this.wheel += Math.sign(this._wheelAcc);
+      this._wheelAcc = 0;
+    }
   }
 
   _onLockChange() {
     this.locked = document.pointerLockElement === this.element;
+    if (this.locked) this._lockedAt = performance.now();
     if (!this.locked) this._releaseAll();
     this.onLockChange?.(this.locked);
   }
@@ -147,8 +211,11 @@ export class Controls {
   _releaseAll() {
     this.keys.clear();
     this.justPressed.clear();
+    this.buttons.clear();
+    this.clicked.clear();
     this.mouseDX = 0;
     this.mouseDY = 0;
     this.wheel = 0;
+    this._wheelAcc = 0;
   }
 }

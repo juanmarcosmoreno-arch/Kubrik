@@ -22,7 +22,7 @@ El juego se construye por etapas. Siempre queda una versión jugable.
 | 1 | Base jugable: cámara en primera persona, vuelo, piso de bloques, atlas procedural, FPS | ✅ |
 | 2 | Mundo por chunks y terreno procedural infinito | ✅ |
 | 3 | Física del jugador: gravedad, salto, colisiones, nado | ✅ |
-| 4 | Romper y poner bloques, hotbar, mira | ⏳ |
+| 4 | Romper y poner bloques, hotbar, mira | ✅ |
 | Extra | Multijugador: jugar en el mismo mundo desde otra computadora con un código | ⏳ (después de la 4) |
 | 5 | Guardado en IndexedDB y menú de mundos | ⏳ |
 | 6 | Ciclo día/noche, oclusión ambiental, sonidos, opciones | ⏳ |
@@ -72,6 +72,9 @@ Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
 | **Ctrl** (o doble toque de **W**) | Correr: más rápido y con la vista un poco más abierta |
 | **F** | Activar o desactivar el vuelo |
 | **Espacio / Shift** (volando) | Subir / bajar |
+| **Clic izquierdo** | Romper el bloque apuntado (mantenido, sigue rompiendo) |
+| **Clic derecho** | Poner el bloque elegido en la cara apuntada |
+| **1 – 9** o **rueda del mouse** | Elegir casilla de la hotbar |
 | **V** | Cambiar la cámara: primera persona → tercera persona → de frente |
 | **Esc** | Soltar el mouse y pausar |
 
@@ -83,6 +86,16 @@ Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
 - Volando no hay gravedad: Espacio sube y Shift baja.
 
 > **Ctrl+W:** en el navegador, Ctrl+W cierra la pestaña y ninguna página puede impedirlo. Mientras jugás, Megabrick pide confirmación antes de cerrar. Si querés evitarlo del todo, corré con doble toque de W.
+
+### Construir
+
+- **Bloque apuntado:** la mira del centro marca el bloque al que apuntás, con un contorno, hasta 6 bloques de distancia. El cálculo es un raycast voxel con el algoritmo DDA, que no saltea ningún bloque. El agua se atraviesa con la mirada.
+- **Romper y poner:** clic izquierdo rompe el bloque, salvo el lecho primordial, que es indestructible. Clic derecho pone el bloque elegido sobre la cara apuntada, pero nunca dentro del jugador. Manteniendo el botón, se repite cada cuarto de segundo.
+- **Hotbar:** tiene 9 casillas abajo de la pantalla: césped, tierra, piedra, tablones, ladrillo de piedra, vidrio, tronco, follaje y arena. El bloque elegido se ve en la mano, en primera persona y también en el personaje en tercera persona.
+- **Mallas:** al cambiar un bloque se rearma enseguida solo la malla de su chunk, y la del chunk vecino si el bloque está en el borde.
+- **Agua:** si rompés un bloque con agua arriba o a un costado, el hueco se llena de agua. Por ahora el agua no fluye.
+- **Tus cambios se recuerdan:** se guardan como diferencias respecto del terreno generado. Si te alejás y el chunk se descarga, al volver tu construcción sigue ahí. Hasta la etapa 5, que agrega el guardado, se pierden al recargar la página. Ese registro es lo que se guarda en la etapa 5 y lo que se comparte en el multijugador.
+- **Mira:** en primera persona y en tercera desde atrás marca el bloque apuntado. En la vista de frente se oculta.
 
 ## El mundo
 
@@ -101,7 +114,7 @@ El mundo es infinito y se genera a medida que te movés, en chunks de 16 × 16 b
 El protagonista de Megabrick es un personaje con estilo de juguete: formas redondeadas y acabado plástico. Lleva gorra con la "M", buzo con capucha y panel blanco con el logo, mochila negra, pantalón cargo y zapatillas. Contrasta con el mundo de bloques pixel art. Se arma por código: la cara, la gorra y los logos se dibujan en canvas, sin imágenes externas.
 
 - **Colores:** verde, azul, rojo, amarillo, violeta y negro. Se elige en la pantalla de inicio y queda guardado en el navegador.
-- **Expresiones:** normal, feliz, sorprendido, determinado y divertido, más un parpadeo automático. En la pantalla de inicio las va mostrando una por una. En el juego se pone feliz cuando sube volando.
+- **Expresiones:** normal, feliz, sorprendido, determinado y divertido, más un parpadeo automático. En la pantalla de inicio las va mostrando una por una. En el juego se pone feliz cuando sube volando y pone cara de decidido mientras rompe bloques.
 - **Animación:** camina moviendo brazos y piernas, la cabeza sigue la mirada y el cuerpo gira con suavidad.
 - **Cámara:** en primera persona no se ve. Con **V** pasa a tercera persona, desde atrás o de frente, y la cámara se acerca sola si atrás hay una pared.
 
@@ -123,11 +136,12 @@ src/
     Mesher.js           → una malla por chunk con solo las caras visibles (sin DOM, apto para workers)
     TerrainGen.js       → terreno procedural con semilla: alturas, capas, agua, árboles y minerales
   player/
-    Player.js           → posición, orientación y movimiento
-    Controls.js         → teclado, mouse y pointer lock
+    Player.js           → posición, orientación, física (colisiones AABB, salto, nado, vuelo)
+    Controls.js         → teclado, botones y rueda del mouse, pointer lock
+    Raycast.js          → bloque apuntado con DDA
+    Interaction.js      → romper y poner bloques
     Avatar.js           → modelo del personaje (piezas redondeadas), animación y expresiones
     ViewCamera.js       → cámara en primera y tercera persona (tecla V)
-    Raycast.js          → (etapa 4) bloque apuntado con DDA
   render/
     atlasLayout.js      → ubicación de cada textura en el atlas (sin DOM, apto para workers)
     textures.js         → dibujo procedural del atlas (pixel art 16×16)
@@ -135,8 +149,13 @@ src/
     Sky.js              → cielo, iluminación y niebla (después también día/noche)
     avatarTextures.js   → cara, gorra y logos del personaje dibujados en canvas (6 colores, 5 expresiones)
     CharacterPreview.js → personaje girando en la pantalla de inicio
+    BlockOutline.js     → contorno del bloque apuntado
+    HeldItem.js         → bloque en la mano en primera persona
+    blockGeometry.js    → geometría de un bloque suelto
+    blockIcons.js       → íconos isométricos de los bloques para la hotbar
   ui/
-    Hud.js              → FPS y avisos (después mira, hotbar y coordenadas)
+    Hud.js              → mira, FPS y avisos (después, coordenadas con F3)
+    Hotbar.js           → las 9 casillas de bloques
     Menu.js             → pantalla de inicio (con selector de color) y menú de pausa
   save/
     Preferences.js      → preferencias del jugador (color del personaje)

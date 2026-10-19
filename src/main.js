@@ -10,13 +10,18 @@ import { TerrainGenerator, parseSeed } from './world/TerrainGen.js';
 import { Player } from './player/Player.js';
 import { Controls } from './player/Controls.js';
 import { Avatar } from './player/Avatar.js';
-import { ViewCamera } from './player/ViewCamera.js';
+import { VIEW, ViewCamera } from './player/ViewCamera.js';
 import { CharacterPreview } from './render/CharacterPreview.js';
 import { DEFAULT_VARIANT, VARIANTS, isVariant } from './render/avatarTextures.js';
 import { loadPreference, savePreference } from './save/Preferences.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Hud } from './ui/Hud.js';
 import { Menu } from './ui/Menu.js';
+import { Hotbar, HOTBAR_SIZE } from './ui/Hotbar.js';
+import { BlockOutline } from './render/BlockOutline.js';
+import { HeldItem } from './render/HeldItem.js';
+import { getBlockGeometry } from './render/blockGeometry.js';
+import { BlockInteraction } from './player/Interaction.js';
 
 // Paso de tiempo máximo por frame: si el navegador se traba, el juego no
 // "salta" de golpe.
@@ -104,6 +109,9 @@ class Game {
       scene.environmentIntensity = 0.55;
     }
     this.stageEl = document.getElementById('character-stage');
+    // La cámara va en la escena para poder colgarle el bloque en la mano.
+    this.scene.add(this.camera);
+    this.heldItem = new HeldItem(this.camera, this.materials);
     this.controls = new Controls(this.renderer.domElement);
     this.controls.onLockChange = (locked) => this.onLockChange(locked);
     this.controls.onLockError = () =>
@@ -111,6 +119,22 @@ class Game {
 
     // --- Interfaz ---
     this.hud = new Hud(document.getElementById('hud'));
+    this.hotbar = new Hotbar(this.hud.root, this.atlas.canvas);
+    this.hotbar.onChange = (id) => this.onHeldBlockChange(id);
+    this.onHeldBlockChange(this.hotbar.selectedBlock);
+
+    // --- Romper y poner bloques ---
+    this.outline = new BlockOutline(this.scene);
+    this.interaction = new BlockInteraction({
+      world: this.world,
+      player: this.player,
+      hotbar: this.hotbar,
+      outline: this.outline,
+      onAction: () => {
+        this.heldItem.swing();
+        this.avatar.swing();
+      },
+    });
     this.menu = new Menu({
       onPlay: () => this.controls.lock(),
       onResume: () => this.controls.lock(),
@@ -147,6 +171,20 @@ class Game {
     this.camera.updateProjectionMatrix();
   }
 
+  /** El bloque elegido en la hotbar va a la mano (primera y tercera persona). */
+  onHeldBlockChange(id) {
+    this.heldItem.setBlock(id);
+    this.avatar.setHeldBlock(getBlockGeometry(id), this.materials);
+  }
+
+  /** Teclas 1-9 y rueda del mouse: elegir casilla de la hotbar. */
+  updateHotbarInput() {
+    for (let i = 0; i < HOTBAR_SIZE; i++) {
+      if (this.controls.wasPressed(`Digit${i + 1}`)) this.hotbar.select(i);
+    }
+    this.hotbar.scroll(this.controls.consumeWheel());
+  }
+
   /** Cambia el color del personaje y lo recuerda para la próxima vez. */
   setAvatarColor(key) {
     this.avatar.setVariant(key);
@@ -163,6 +201,7 @@ class Game {
     } else if (this.state === STATE.PLAYING) {
       // Esc (o perder el foco) suelta el mouse: pausa.
       this.state = STATE.PAUSED;
+      this.interaction.release();
       this.menu.showPause();
     }
   }
@@ -201,8 +240,11 @@ class Game {
     const a = this.avatar;
     a.root.visible = this.view.showsAvatar;
     a.root.position.copy(p.position);
-    // Contento mientras sube rápido volando; normal el resto del tiempo.
-    a.setExpression(p.flying && p.velocity.y > 3 ? 'feliz' : 'normal');
+    // Decidido mientras rompe bloques; contento al subir rápido volando.
+    let expression = 'normal';
+    if (this.interaction.breaking && this.interaction.target) expression = 'determinado';
+    else if (p.flying && p.velocity.y > 3) expression = 'feliz';
+    a.setExpression(expression);
     a.update(this.state === STATE.PLAYING ? dt : 0, {
       yaw: p.yaw,
       pitch: p.pitch,
@@ -246,11 +288,19 @@ class Game {
           );
         }
         this.player.update(dt, this.controls, this.world);
+        this.updateHotbarInput();
+        this.interaction.update(dt, this.controls);
         this.updateFov(dt);
       }
       // Primero la cámara: decide si hay lugar para mostrar al personaje.
       this.view.update(this.player, this.world);
       this.updateAvatar(dt);
+      // De frente la mira no marcaría el bloque apuntado: se oculta.
+      this.hud.crosshair.hidden = this.view.mode === VIEW.FRONT && this.view.showsAvatar;
+      // El bloque en la mano se ve solo cuando no se ve al personaje.
+      this.heldItem.setVisible(!this.view.showsAvatar);
+      this.heldItem.update(this.state === STATE.PLAYING ? dt : 0, this.player.horizontalSpeed);
+      this.hotbar.update(dt);
       // Con la cámara bajo el agua todo se ve azul y cerca (en cualquier vista).
       const cam = this.camera.position;
       this.sky.setUnderwater(this.world.isWaterAt(cam.x, cam.y, cam.z));

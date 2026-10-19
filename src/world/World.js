@@ -43,6 +43,16 @@ export class World {
     this.group = new THREE.Group();
     this.group.name = 'mundo';
     this._center = null; // chunk donde está el jugador
+    /**
+     * Cambios hechos por los jugadores, como diferencias respecto del
+     * terreno generado: "cx,cz" → Map(índice del bloque → ID). Se vuelven a
+     * aplicar si el chunk se descarga y se genera de nuevo, y son lo que se
+     * guarda (etapa 5) y lo que se comparte en el multijugador.
+     * @type {Map<string, Map<number, number>>}
+     */
+    this.edits = new Map();
+    /** Funciones que se llaman con cada cambio: ({x, y, z, id}) => void. */
+    this.editListeners = new Set();
     this.setRenderDistance(renderDistance);
   }
 
@@ -150,9 +160,45 @@ export class World {
     if (chunk) chunk.dirty = true;
   }
 
-  /** Genera los datos de un chunk con el generador de terreno. */
+  /**
+   * Cambio de un bloque hecho por un jugador (romper o poner). Es el ÚNICO
+   * camino para modificar el mundo durante el juego: registra la diferencia,
+   * rearma al instante la malla del chunk (y la del vecino si el bloque está
+   * en un borde) y avisa a los interesados (guardado, multijugador).
+   * @returns {boolean} si el bloque cambió
+   */
+  editBlock(x, y, z, id) {
+    if (!this.setBlock(x, y, z, id)) return false;
+    const cx = toChunkCoord(x);
+    const cz = toChunkCoord(z);
+    const key = chunkKey(cx, cz);
+    let chunkEdits = this.edits.get(key);
+    if (!chunkEdits) {
+      chunkEdits = new Map();
+      this.edits.set(key, chunkEdits);
+    }
+    chunkEdits.set(Chunk.index(toLocalCoord(x), y, toLocalCoord(z)), id);
+
+    // Rearmar ya mismo lo afectado (el chunk y sus vecinos marcados).
+    for (const [dx, dz] of [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      const chunk = this.getChunk(cx + dx, cz + dz);
+      if (chunk?.dirty && chunk.mesh && this._neighborsReady(chunk.cx, chunk.cz)) this.rebuildChunk(chunk);
+    }
+    for (const listener of this.editListeners) listener({ x, y, z, id });
+    return true;
+  }
+
+  /** Genera los datos de un chunk y le aplica los cambios de los jugadores. */
   _generate(cx, cz) {
-    const { data, maxY } = this.generator.generateChunk(cx, cz);
+    const { data, maxY: generatedMaxY } = this.generator.generateChunk(cx, cz);
+    let maxY = generatedMaxY;
+    const chunkEdits = this.edits.get(chunkKey(cx, cz));
+    if (chunkEdits) {
+      for (const [index, id] of chunkEdits) {
+        data[index] = id;
+        if (id !== BLOCK.AIR) maxY = Math.max(maxY, index >> 8); // y = índice / 256
+      }
+    }
     const chunk = new Chunk(cx, cz, data, maxY);
     this.chunks.set(chunkKey(cx, cz), chunk);
     return chunk;

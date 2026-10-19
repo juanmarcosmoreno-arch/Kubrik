@@ -137,6 +137,9 @@ function mergeByMaterial(group) {
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+/** Duración del movimiento de brazo al usar un bloque (segundos). */
+const SWING_TIME = 0.3;
+
 /** Diferencia de ángulos normalizada a [-PI, PI]. */
 function angleDiff(a, b) {
   let d = (a - b) % (Math.PI * 2);
@@ -191,6 +194,8 @@ export class Avatar {
     this.baseExpression = 'normal';
     this._blinkTimer = 2 + Math.random() * 3;
     this._blinking = 0;
+    this._swing = 0; // animación de usar un bloque (segundos que faltan)
+    this.heldBlock = null; // malla del bloque en la mano derecha
   }
 
   _build() {
@@ -313,6 +318,33 @@ export class Avatar {
     }
   }
 
+  /**
+   * Pone un bloque en la mano derecha (o lo saca con geometry = null).
+   * @param {THREE.BufferGeometry | null} geometry geometría del bloque (1x1x1)
+   * @param {THREE.Material[]} [materials] materiales de bloques por capa
+   */
+  setHeldBlock(geometry, materials) {
+    if (!geometry) {
+      if (this.heldBlock) this.heldBlock.visible = false;
+      return;
+    }
+    if (!this.heldBlock) {
+      this.heldBlock = new THREE.Mesh(geometry, materials);
+      // Delante de la mano, del tamaño de un cubito (unos 0,2 bloques).
+      this.heldBlock.position.set(0, -8.4, -1.7);
+      this.heldBlock.scale.setScalar(3.6);
+      this.heldBlock.rotation.y = Math.PI / 4;
+      this.armR.add(this.heldBlock);
+    }
+    this.heldBlock.geometry = geometry;
+    this.heldBlock.visible = true;
+  }
+
+  /** Movimiento del brazo al romper o poner un bloque. */
+  swing() {
+    this._swing = SWING_TIME;
+  }
+
   /** Cambia el color del buzo, la gorra y las zapatillas. */
   setVariant(variant) {
     if (!isVariant(variant) || variant === this.variant) return;
@@ -382,6 +414,15 @@ export class Avatar {
       this.legR.rotation.x = -swing;
       this.armL.rotation.set(-swing * 0.8, 0, -0.06 - idle);
       this.armR.rotation.set(swing * 0.8, 0, 0.06 + idle);
+    }
+    // Con un bloque en la mano el brazo va un poco hacia adelante; al usarlo
+    // se levanta y baja de golpe.
+    if (this.heldBlock?.visible) this.armR.rotation.x = this.armR.rotation.x * 0.5 + 0.3;
+    if (this._swing > 0) {
+      this._swing = Math.max(0, this._swing - dt);
+      const s = Math.sin((1 - this._swing / SWING_TIME) * Math.PI);
+      this.armR.rotation.x += s * 1.3;
+      this.armR.rotation.z -= s * 0.25;
     }
     // Al caminar el cuerpo sube y baja apenas con cada paso.
     const bob = Math.abs(Math.sin(this.walkPhase)) * 0.4 * amount;

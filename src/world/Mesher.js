@@ -190,9 +190,13 @@ function emitFace(buf, f, id, x, y, z, topHeight) {
  * - Contra aire o un bloque no opaco (agua, vidrio, hojas): sí, salvo que
  *   sean del mismo tipo y ese tipo oculte caras entre iguales (cullSame).
  * - Contra un bloque opaco: nunca (queda tapada).
+ * - El agua, solo contra aire.
  */
 function faceVisible(id, n) {
   if (OPAQUE[n]) return false;
+  // El agua solo muestra su superficie hacia el aire: contra vidrio u hojas
+  // dibujan esos bloques (si no, las dos caras se pisan y parpadean).
+  if (LIQUID[id] && n !== BLOCK.AIR) return false;
   return !(n === id && CULL_SAME[id]);
 }
 

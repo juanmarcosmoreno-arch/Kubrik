@@ -1,5 +1,6 @@
-// HUD: información superpuesta al juego (FPS y avisos cortos).
-// En próximas etapas se suman la mira, la hotbar y las coordenadas (F3).
+// HUD: información superpuesta al juego (mira, FPS y avisos cortos). La
+// hotbar tiene su propio módulo (ui/Hotbar.js) y se agrega a este mismo
+// contenedor. En la etapa 6 se suman las coordenadas (F3).
 
 export class Hud {
   /**
@@ -7,6 +8,11 @@ export class Hud {
    */
   constructor(root) {
     this.root = root;
+
+    // Mira en el centro de la pantalla.
+    this.crosshair = document.createElement('div');
+    this.crosshair.className = 'crosshair';
+    root.appendChild(this.crosshair);
 
     this.fpsEl = document.createElement('div');
     this.fpsEl.className = 'hud-fps';
