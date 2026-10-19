@@ -13,28 +13,36 @@
     <!-- Canvas de Three.js -->
     <div id="game"></div>
 
-    <!-- HUD (FPS; más adelante mira, hotbar y coordenadas) -->
+    <!-- HUD (FPS y avisos; más adelante mira, hotbar y coordenadas) -->
     <div id="hud" hidden></div>
 
     <!-- Pantalla de inicio -->
     <div id="title-screen" class="screen">
       <div class="title-content">
-        <h1 class="title-logo">
-          <img src="/logo/megabrick-oscuro.webp" alt="Megabrick" width="748" height="590" draggable="false" />
-        </h1>
-        <p class="tagline">Construí tu mundo, bloque a bloque</p>
-        <div class="title-actions">
-          <button id="btn-play" class="btn btn-primary" type="button">Jugar</button>
+        <div class="title-main">
+          <h1 class="title-logo">
+            <img src="/logo/megabrick-oscuro.webp" alt="Megabrick" width="748" height="590" draggable="false" />
+          </h1>
+          <p class="tagline">Construí tu mundo, bloque a bloque</p>
+          <div class="title-actions">
+            <button id="btn-play" class="btn btn-primary" type="button">Jugar</button>
+          </div>
+          <p id="title-msg" class="msg" role="status"></p>
+          <p id="device-note" class="note" hidden>Megabrick se juega en PC o Mac, con teclado y mouse.</p>
+          <ul class="controls-help">
+            <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> moverse</li>
+            <li><kbd>Mouse</kbd> mirar</li>
+            <li><kbd>Espacio</kbd> subir</li>
+            <li><kbd>Shift</kbd> bajar</li>
+            <li><kbd>V</kbd> cámara</li>
+            <li><kbd>Esc</kbd> pausa</li>
+          </ul>
         </div>
-        <p id="title-msg" class="msg" role="status"></p>
-        <p id="device-note" class="note" hidden>Megabrick se juega en PC o Mac, con teclado y mouse.</p>
-        <ul class="controls-help">
-          <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> moverse</li>
-          <li><kbd>Mouse</kbd> mirar</li>
-          <li><kbd>Espacio</kbd> subir</li>
-          <li><kbd>Shift</kbd> bajar</li>
-          <li><kbd>Esc</kbd> pausa</li>
-        </ul>
+        <!-- Vitrina del personaje: se dibuja en el canvas, dentro de este recuadro -->
+        <div class="title-character">
+          <div id="character-stage" class="character-stage" aria-hidden="true"></div>
+          <div id="color-swatches" class="swatches" role="radiogroup" aria-label="Color del personaje"></div>
+        </div>
       </div>
     </div>
 

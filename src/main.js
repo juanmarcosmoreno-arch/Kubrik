@@ -9,6 +9,12 @@ import { World } from './world/World.js';
 import { FLAT_SURFACE_Y, generateFlatFloor, placeShowcase } from './world/TerrainGen.js';
 import { Player } from './player/Player.js';
 import { Controls } from './player/Controls.js';
+import { Avatar } from './player/Avatar.js';
+import { ViewCamera } from './player/ViewCamera.js';
+import { CharacterPreview } from './render/CharacterPreview.js';
+import { DEFAULT_VARIANT, VARIANTS, isVariant } from './render/avatarTextures.js';
+import { loadPreference, savePreference } from './save/Preferences.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Hud } from './ui/Hud.js';
 import { Menu } from './ui/Menu.js';
 
@@ -17,6 +23,8 @@ const FLOOR_SIZE = 32;
 // Paso de tiempo máximo por frame: si el navegador se traba, el juego no
 // "salta" de golpe.
 const MAX_DT = 0.1;
+// Color de fondo de la pantalla de inicio (el mismo negro del logo).
+const TITLE_BG = 0x0a0a0a;
 
 /** Estados posibles del juego. */
 const STATE = Object.freeze({
@@ -50,9 +58,28 @@ class Game {
     this.sky = new Sky(this.scene);
 
     // --- Jugador ---
-    this.player = new Player(this.camera);
+    this.player = new Player();
     // Aparece en el borde sur del piso mirando hacia el centro (-Z).
     this.player.spawn(FLOOR_SIZE / 2, FLAT_SURFACE_Y, FLOOR_SIZE - 4, 0, -0.2);
+    this.view = new ViewCamera(this.camera);
+
+    // --- Personaje (se ve en tercera persona y en la pantalla de inicio) ---
+    let color = loadPreference('color', DEFAULT_VARIANT);
+    if (!isVariant(color)) color = DEFAULT_VARIANT;
+    this.avatar = new Avatar(color);
+    this.avatar.root.visible = false;
+    this.scene.add(this.avatar.root);
+    this.preview = new CharacterPreview(color);
+    // Reflejos suaves para el plástico del personaje: un ambiente de
+    // "habitación" generado por código (solo afecta materiales estándar).
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    for (const scene of [this.scene, this.preview.scene]) {
+      scene.environment = env;
+      scene.environmentIntensity = 0.55;
+    }
+    this.stageEl = document.getElementById('character-stage');
     this.controls = new Controls(this.renderer.domElement);
     this.controls.onLockChange = (locked) => this.onLockChange(locked);
     this.controls.onLockError = () =>
@@ -63,6 +90,9 @@ class Game {
     this.menu = new Menu({
       onPlay: () => this.controls.lock(),
       onResume: () => this.controls.lock(),
+      colors: VARIANTS,
+      color,
+      onColor: (key) => this.setAvatarColor(key),
     });
 
     this.state = STATE.TITLE;
@@ -74,6 +104,13 @@ class Game {
     this.watchPixelRatio();
     this.onResize();
     this.renderer.setAnimationLoop(() => this.frame());
+  }
+
+  /** Cambia el color del personaje y lo recuerda para la próxima vez. */
+  setAvatarColor(key) {
+    this.avatar.setVariant(key);
+    this.preview.setVariant(key);
+    savePreference('color', key);
   }
 
   /** Cambio de captura del mouse: entra o sale del modo de juego. */
@@ -117,17 +154,42 @@ class Game {
     );
   }
 
+  /** Ubica y anima el personaje según el estado del jugador. */
+  updateAvatar(dt) {
+    const p = this.player;
+    const a = this.avatar;
+    a.root.visible = this.view.showsAvatar;
+    a.root.position.copy(p.position);
+    // Contento mientras sube rápido volando; normal el resto del tiempo.
+    a.setExpression(p.velocity.y > 3 ? 'feliz' : 'normal');
+    a.update(this.state === STATE.PLAYING ? dt : 0, {
+      yaw: p.yaw,
+      pitch: p.pitch,
+      speed: p.horizontalSpeed,
+      flying: p.flying && !p.isOnGround(this.world),
+    });
+  }
+
   /** Un frame del loop principal. */
   frame() {
     const realDt = this.clock.getDelta();
     const dt = Math.min(realDt, MAX_DT);
 
-    // En la pantalla de inicio el logo tapa todo: no hace falta dibujar.
-    if (this.state !== STATE.TITLE) {
+    if (this.state === STATE.TITLE) {
+      // Fondo negro como el del logo y el personaje en su recuadro.
+      this.renderer.setClearColor(TITLE_BG, 1);
+      this.renderer.clear();
+      this.preview.update(dt);
+      this.preview.render(this.renderer, this.stageEl.getBoundingClientRect());
+    } else {
       if (this.state === STATE.PLAYING) {
+        if (this.controls.wasPressed('KeyV')) this.hud.toast(this.view.cycle());
         this.player.update(dt, this.controls, this.world);
         this.world.rebuildDirty();
       }
+      // Primero la cámara: decide si hay lugar para mostrar al personaje.
+      this.view.update(this.player, this.world);
+      this.updateAvatar(dt);
       this.sky.update(dt, this.player.position);
       this.renderer.render(this.scene, this.camera);
     }

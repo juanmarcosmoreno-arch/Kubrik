@@ -60,9 +60,19 @@ npm run preview   # sirve el build de producción para probarlo
 | **Mouse** | Mirar |
 | **Espacio** | Subir (modo vuelo) |
 | **Shift** | Bajar (modo vuelo) |
+| **V** | Cambiar la cámara: primera persona → tercera persona → de frente |
 | **Esc** | Soltar el mouse y pausar |
 
 En la etapa 1 el jugador vuela. La gravedad, el salto y las colisiones llegan en la etapa 3.
+
+## Personaje
+
+El protagonista de Megabrick es un personaje con estilo de juguete: formas redondeadas y acabado plástico. Lleva gorra con la "M", buzo con capucha y panel blanco con el logo, mochila negra, pantalón cargo y zapatillas. Contrasta con el mundo de bloques pixel art. Se arma por código: la cara, la gorra y los logos se dibujan en canvas, sin imágenes externas.
+
+- **Colores:** verde, azul, rojo, amarillo, violeta y negro. Se elige en la pantalla de inicio y queda guardado en el navegador.
+- **Expresiones:** normal, feliz, sorprendido, determinado y divertido, más un parpadeo automático. En la pantalla de inicio las va mostrando una por una. En el juego se pone feliz cuando sube volando.
+- **Animación:** camina moviendo brazos y piernas, la cabeza sigue la mirada y el cuerpo gira con suavidad.
+- **Cámara:** en primera persona no se ve. Con **V** pasa a tercera persona, desde atrás o de frente, y la cámara se acerca sola si atrás hay una pared.
 
 ## Estructura del código
 
@@ -84,16 +94,21 @@ src/
   player/
     Player.js           → posición, orientación y movimiento
     Controls.js         → teclado, mouse y pointer lock
+    Avatar.js           → modelo del personaje (piezas redondeadas), animación y expresiones
+    ViewCamera.js       → cámara en primera y tercera persona (tecla V)
     Raycast.js          → (etapa 4) bloque apuntado con DDA
   render/
     atlasLayout.js      → ubicación de cada textura en el atlas (sin DOM, apto para workers)
     textures.js         → dibujo procedural del atlas (pixel art 16×16)
     materials.js        → materiales por capa: opaca, recortada (hojas/vidrio) y translúcida (agua)
     Sky.js              → cielo e iluminación (después también niebla y día/noche)
+    avatarTextures.js   → cara, gorra y logos del personaje dibujados en canvas (6 colores, 5 expresiones)
+    CharacterPreview.js → personaje girando en la pantalla de inicio
   ui/
-    Hud.js              → FPS (después mira, hotbar y coordenadas)
-    Menu.js             → pantalla de inicio y menú de pausa
+    Hud.js              → FPS y avisos (después mira, hotbar y coordenadas)
+    Menu.js             → pantalla de inicio (con selector de color) y menú de pausa
   save/
+    Preferences.js      → preferencias del jugador (color del personaje)
     Storage.js          → (etapa 5) guardado en IndexedDB
 ```
 

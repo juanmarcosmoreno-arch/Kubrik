@@ -10,13 +10,7 @@ import * as THREE from 'three';
 const HALF_PI = Math.PI / 2 - 0.001;
 
 export class Player {
-  /**
-   * @param {THREE.PerspectiveCamera} camera cámara en primera persona
-   */
-  constructor(camera) {
-    this.camera = camera;
-    this.camera.rotation.order = 'YXZ'; // primero giro horizontal, después vertical
-
+  constructor() {
     this.position = new THREE.Vector3(); // posición de los pies
     this.velocity = new THREE.Vector3();
     this.yaw = 0; // giro horizontal (radianes)
@@ -40,7 +34,6 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.yaw = yaw;
     this.pitch = pitch;
-    this.syncCamera();
   }
 
   /**
@@ -77,7 +70,20 @@ export class Player {
 
     this.position.addScaledVector(this.velocity, dt);
     this._resolveGround(world);
-    this.syncCamera();
+  }
+
+  /** ¿Está parado sobre un bloque sólido? */
+  isOnGround(world) {
+    const y = this.position.y;
+    return (
+      y - Math.floor(y) < 0.05 &&
+      world.isSolid(Math.floor(this.position.x), Math.floor(y - 0.05), Math.floor(this.position.z))
+    );
+  }
+
+  /** Velocidad horizontal actual (bloques/s), para animar al personaje. */
+  get horizontalSpeed() {
+    return Math.hypot(this.velocity.x, this.velocity.z);
   }
 
   /**
@@ -94,13 +100,8 @@ export class Player {
     }
   }
 
-  /** Ubica la cámara en los ojos del jugador. */
-  syncCamera() {
-    this.camera.position.set(
-      this.position.x,
-      this.position.y + this.eyeHeight,
-      this.position.z,
-    );
-    this.camera.rotation.set(this.pitch, this.yaw, 0);
+  /** Copia en `out` la posición de los ojos (de donde sale la cámara). */
+  getEyePosition(out) {
+    return out.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
   }
 }
