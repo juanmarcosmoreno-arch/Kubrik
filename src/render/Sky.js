@@ -1,8 +1,8 @@
 // Cielo e iluminación.
 //
-// Etapa 1: cielo celeste fijo, luz ambiente y una luz direccional (el sol).
-// En la etapa 2 se suma la niebla y en la etapa 6 el ciclo día/noche, que va
-// a variar estos mismos colores e intensidades con la hora del día.
+// Cielo celeste, luz ambiente, una luz direccional (el sol) y niebla del
+// mismo color del cielo que oculta el borde del mundo cargado. En la etapa 6
+// el ciclo día/noche va a variar estos colores e intensidades con la hora.
 
 import * as THREE from 'three';
 
@@ -28,6 +28,21 @@ export class Sky {
     this.sunDirection = new THREE.Vector3(0.45, 1, 0.3).normalize();
     scene.add(this.sun);
     scene.add(this.sun.target);
+
+    // Niebla lineal: empieza a notarse a mitad de camino y tapa todo justo
+    // antes del borde del área cargada.
+    this.fog = new THREE.Fog(this.skyColor, 20, 100);
+    scene.fog = this.fog;
+  }
+
+  /**
+   * Ajusta la niebla para que tape todo justo antes del borde del área
+   * cargada.
+   * @param {number} edgeDistance distancia (bloques) al borde más cercano
+   */
+  setViewDistance(edgeDistance) {
+    this.fog.far = Math.max(8, edgeDistance - 2);
+    this.fog.near = this.fog.far * 0.45;
   }
 
   /**

@@ -25,7 +25,8 @@ export const BLOCK = Object.freeze({
 });
 
 /**
- * Capas de render. Cada chunk arma una malla por capa:
+ * Capas de render. Cada chunk arma una sola malla con un grupo (y un
+ * material) por capa:
  *  - OPAQUE: bloques sólidos comunes.
  *  - CUTOUT: con huecos totalmente transparentes (hojas, vidrio), usan alphaTest.
  *  - TRANSLUCENT: semitransparentes (agua), se dibujan con mezcla alfa.

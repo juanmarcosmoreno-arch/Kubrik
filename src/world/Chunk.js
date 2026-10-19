@@ -15,18 +15,21 @@ export class Chunk {
    * @param {number} cx coordenada X del chunk (en chunks, no en bloques)
    * @param {number} cz coordenada Z del chunk
    * @param {Uint8Array} [data] datos ya generados (opcional)
+   * @param {number} [maxY] altura del bloque no-aire más alto (si se conoce)
    */
-  constructor(cx, cz, data) {
+  constructor(cx, cz, data, maxY = CHUNK_HEIGHT - 1) {
     this.cx = cx;
     this.cz = cz;
     this.data = data ?? new Uint8Array(CHUNK_VOLUME);
     if (this.data.length !== CHUNK_VOLUME) {
       throw new Error(`Datos de chunk con tamaño inválido: ${this.data.length}`);
     }
+    // Por encima de maxY todo es aire: el mesher no recorre esa parte.
+    this.maxY = maxY;
     // true cuando los bloques cambiaron y hay que rearmar la malla.
     this.dirty = true;
-    // Mallas de Three.js por capa de render (las administra World).
-    this.meshes = [];
+    // Malla de Three.js del chunk (la administra World) o null.
+    this.mesh = null;
   }
 
   /** Índice lineal dentro de `data` para coordenadas locales. */
@@ -53,6 +56,7 @@ export class Chunk {
     const i = Chunk.index(x, y, z);
     if (this.data[i] === id) return false;
     this.data[i] = id;
+    if (id !== BLOCK.AIR && y > this.maxY) this.maxY = y;
     this.dirty = true;
     return true;
   }

@@ -20,7 +20,7 @@ El juego se construye por etapas. Siempre queda una versión jugable.
 | Etapa | Contenido | Estado |
 |---|---|---|
 | 1 | Base jugable: cámara en primera persona, vuelo, piso de bloques, atlas procedural, FPS | ✅ |
-| 2 | Mundo por chunks y terreno procedural infinito | ⏳ |
+| 2 | Mundo por chunks y terreno procedural infinito | ✅ |
 | 3 | Física del jugador: gravedad, salto, colisiones, nado | ⏳ |
 | 4 | Romper y poner bloques, hotbar, mira | ⏳ |
 | 5 | Guardado en IndexedDB y menú de mundos | ⏳ |
@@ -50,6 +50,15 @@ npm run preview   # sirve el build de producción para probarlo
 
 `npm run dev` muestra en la consola la dirección para abrir el juego, por ejemplo `http://localhost:5173/megabrick/`.
 
+### Semilla y distancia de render
+
+Por ahora se eligen en la dirección del juego. El menú de mundos llega en la etapa 5 y el de opciones en la 6.
+
+- `?semilla=lo-que-quieras`: la misma semilla genera siempre el mismo mundo. Acepta texto o un número. Sin este parámetro se usa `megabrick`.
+- `?distancia=8`: distancia de render en chunks, de 2 a 16. Por defecto es 6.
+
+Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
+
 ## Controles
 
 | Tecla | Acción |
@@ -63,7 +72,19 @@ npm run preview   # sirve el build de producción para probarlo
 | **V** | Cambiar la cámara: primera persona → tercera persona → de frente |
 | **Esc** | Soltar el mouse y pausar |
 
-En la etapa 1 el jugador vuela. La gravedad, el salto y las colisiones llegan en la etapa 3.
+Por ahora el jugador vuela. La gravedad, el salto y las colisiones llegan en la etapa 3.
+
+## El mundo
+
+El mundo es infinito y se genera a medida que te movés, en chunks de 16 × 16 bloques de base y 128 de alto.
+
+- **Terreno:** sale de ruido simplex con varias octavas, que arma llanuras, colinas y algunas montañas. Las cimas muy altas son de piedra.
+- **Capas:** césped arriba, 3 o 4 de tierra, piedra debajo y lecho primordial indestructible en y = 0.
+- **Agua:** el mar está a una altura fija (y = 40) y es semitransparente. Hay arena en costas y fondos poco profundos.
+- **Árboles:** se agrupan en bosques y también aparecen sueltos. Sus copas pasan de un chunk a otro sin cortarse.
+- **Minerales:** cobrizo, azurita y solarita aparecen en vetas dentro de la piedra. Cuanto más raro el mineral, más hondo.
+- **Carga de chunks:** se generan y mallan primero los más cercanos al jugador, con un tope de tiempo por frame para no trabar el juego. Los lejanos se liberan de la memoria.
+- **Niebla:** tiene el color del cielo y tapa el borde del área cargada.
 
 ## Personaje
 
@@ -88,9 +109,9 @@ src/
   world/
     blocks.js           → tipos de bloque y sus propiedades
     Chunk.js            → datos de un chunk de 16×128×16 (Uint8Array, 0 = aire)
-    World.js            → conjunto de chunks, get/set de bloques, mallas por chunk
-    Mesher.js           → malla de cada chunk (solo caras visibles)
-    TerrainGen.js       → generación del terreno (por ahora un piso plano y un muestrario)
+    World.js            → chunks alrededor del jugador (carga/descarga), get/set de bloques, mallas
+    Mesher.js           → una malla por chunk con solo las caras visibles (sin DOM, apto para workers)
+    TerrainGen.js       → terreno procedural con semilla: alturas, capas, agua, árboles y minerales
   player/
     Player.js           → posición, orientación y movimiento
     Controls.js         → teclado, mouse y pointer lock
@@ -101,7 +122,7 @@ src/
     atlasLayout.js      → ubicación de cada textura en el atlas (sin DOM, apto para workers)
     textures.js         → dibujo procedural del atlas (pixel art 16×16)
     materials.js        → materiales por capa: opaca, recortada (hojas/vidrio) y translúcida (agua)
-    Sky.js              → cielo e iluminación (después también niebla y día/noche)
+    Sky.js              → cielo, iluminación y niebla (después también día/noche)
     avatarTextures.js   → cara, gorra y logos del personaje dibujados en canvas (6 colores, 5 expresiones)
     CharacterPreview.js → personaje girando en la pantalla de inicio
   ui/

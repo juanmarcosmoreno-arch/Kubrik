@@ -6,7 +6,7 @@ import { createAtlasTexture } from './render/textures.js';
 import { createBlockMaterials } from './render/materials.js';
 import { Sky } from './render/Sky.js';
 import { World } from './world/World.js';
-import { FLAT_SURFACE_Y, generateFlatFloor, placeShowcase } from './world/TerrainGen.js';
+import { TerrainGenerator, parseSeed } from './world/TerrainGen.js';
 import { Player } from './player/Player.js';
 import { Controls } from './player/Controls.js';
 import { Avatar } from './player/Avatar.js';
@@ -18,13 +18,28 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Hud } from './ui/Hud.js';
 import { Menu } from './ui/Menu.js';
 
-// Tamaño del piso de prueba de la etapa 1 (en bloques).
-const FLOOR_SIZE = 32;
 // Paso de tiempo máximo por frame: si el navegador se traba, el juego no
 // "salta" de golpe.
 const MAX_DT = 0.1;
 // Color de fondo de la pantalla de inicio (el mismo negro del logo).
 const TITLE_BG = 0x0a0a0a;
+
+/**
+ * Opciones que por ahora se eligen en la URL (el menú de mundos llega en la
+ * etapa 5 y el de opciones en la 6):
+ *   ?semilla=texto-o-número   misma semilla = mismo mundo
+ *   ?distancia=6              distancia de render en chunks (2 a 16)
+ */
+function readUrlOptions() {
+  const params = new URLSearchParams(window.location.search);
+  const seedText = params.get('semilla')?.trim() || 'megabrick';
+  const distance = Number.parseInt(params.get('distancia') ?? '', 10);
+  return {
+    seedText,
+    seed: parseSeed(seedText),
+    renderDistance: Number.isFinite(distance) ? Math.max(2, Math.min(16, distance)) : 6,
+  };
+}
 
 /** Estados posibles del juego. */
 const STATE = Object.freeze({
@@ -49,18 +64,24 @@ class Game {
     this.materials = createBlockMaterials(this.atlas.texture);
 
     // --- Mundo ---
-    this.world = new World(this.materials);
+    this.options = readUrlOptions();
+    this.generator = new TerrainGenerator(this.options.seed);
+    this.world = new World(this.materials, this.generator, {
+      renderDistance: this.options.renderDistance,
+    });
     this.scene.add(this.world.group);
-    generateFlatFloor(this.world, FLOOR_SIZE);
-    placeShowcase(this.world);
-    this.world.rebuildDirty();
 
     this.sky = new Sky(this.scene);
+    this.applyRenderDistance();
 
     // --- Jugador ---
     this.player = new Player();
-    // Aparece en el borde sur del piso mirando hacia el centro (-Z).
-    this.player.spawn(FLOOR_SIZE / 2, FLAT_SURFACE_Y, FLOOR_SIZE - 4, 0, -0.2);
+    // Aparece en tierra firme cerca del origen, mirando al horizonte.
+    const spawn = this.generator.findSpawn();
+    this.player.spawn(spawn.x, spawn.y, spawn.z, 0, -0.1);
+    // Los chunks de alrededor se cargan ya; el resto, de a poco por frame
+    // (mientras se ve la pantalla de inicio ya se va cargando).
+    this.world.preload(spawn.x, spawn.z, 2);
     this.view = new ViewCamera(this.camera);
 
     // --- Personaje (se ve en tercera persona y en la pantalla de inicio) ---
@@ -104,6 +125,16 @@ class Game {
     this.watchPixelRatio();
     this.onResize();
     this.renderer.setAnimationLoop(() => this.frame());
+  }
+
+  /**
+   * Ajusta niebla y plano lejano de la cámara a la distancia de render: la
+   * niebla tapa el borde del área cargada.
+   */
+  applyRenderDistance() {
+    this.sky.setViewDistance(this.world.edgeDistance);
+    this.camera.far = this.world.renderDistance * 16 + 64;
+    this.camera.updateProjectionMatrix();
   }
 
   /** Cambia el color del personaje y lo recuerda para la próxima vez. */
@@ -175,6 +206,10 @@ class Game {
     const realDt = this.clock.getDelta();
     const dt = Math.min(realDt, MAX_DT);
 
+    // El mundo se genera alrededor del jugador en todos los estados (así,
+    // mientras se ve la pantalla de inicio, ya se va cargando).
+    this.world.update(this.player.position.x, this.player.position.z);
+
     if (this.state === STATE.TITLE) {
       // Fondo negro como el del logo y el personaje en su recuadro.
       this.renderer.setClearColor(TITLE_BG, 1);
@@ -185,7 +220,6 @@ class Game {
       if (this.state === STATE.PLAYING) {
         if (this.controls.wasPressed('KeyV')) this.hud.toast(this.view.cycle());
         this.player.update(dt, this.controls, this.world);
-        this.world.rebuildDirty();
       }
       // Primero la cámara: decide si hay lugar para mostrar al personaje.
       this.view.update(this.player, this.world);

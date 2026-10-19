@@ -1,79 +1,321 @@
-// Generación del terreno.
+// Generación procedural del terreno.
 //
-// Etapa 1: un piso plano de prueba con un muestrario de bloques. En la
-// etapa 2 este módulo pasa a generar el terreno procedural con ruido
-// (alturas, capas, agua, árboles y minerales).
+// Todo sale de la semilla: la altura de cada columna se calcula con ruido
+// simplex de varias octavas (llanuras, colinas y montañas), y árboles y
+// vetas de mineral se ubican con un generador pseudoaleatorio que depende
+// de la semilla y de la posición. Así, la misma semilla da siempre el mismo
+// mundo, y un chunk se puede generar solo, sin necesitar a sus vecinos.
+//
+// Este módulo es puro (sin DOM ni Three.js) para poder correr en un Web
+// Worker en la etapa 7. Más adelante se suman biomas y cuevas con ruido 3D
+// (ver los comentarios "Biomas" y "Cuevas").
 
+import { createNoise2D } from 'simplex-noise';
 import { BLOCK } from './blocks.js';
+import { CHUNK_HEIGHT, CHUNK_SIZE, CHUNK_VOLUME, Chunk } from './Chunk.js';
 
-/** Altura (en bloques) de la superficie del piso plano. */
-export const FLAT_SURFACE_Y = 4;
+/** Nivel del mar: el agua llena todo lo que quede por debajo. */
+export const SEA_LEVEL = 40;
 
-/**
- * Llena el mundo con un piso plano de `size` x `size` bloques que empieza en
- * (0, 0). Capas de abajo hacia arriba: lecho primordial, piedra, tierra y
- * césped arriba de todo.
- */
-export function generateFlatFloor(world, size = 32) {
-  for (let x = 0; x < size; x++) {
-    for (let z = 0; z < size; z++) {
-      world.setBlock(x, 0, z, BLOCK.BEDROCK);
-      world.setBlock(x, 1, z, BLOCK.STONE);
-      world.setBlock(x, 2, z, BLOCK.DIRT);
-      world.setBlock(x, FLAT_SURFACE_Y - 1, z, BLOCK.GRASS);
-    }
-  }
+/** Altura máxima del terreno (deja lugar arriba para árboles). */
+const MAX_TERRAIN = CHUNK_HEIGHT - 12;
+
+/** Por encima de esta altura las montañas son de piedra pelada. */
+const ROCK_LINE = 92;
+
+// Árboles: el mundo se divide en celdas y cada celda puede tener uno.
+const TREE_CELL = 5;
+const TREE_RADIUS = 2; // radio de la copa (las copas cruzan bordes de chunk)
+
+/** Generador pseudoaleatorio mulberry32 (rápido y determinista). */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function rnd() {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
+/** Mezcla enteros en un hash de 32 bits (para decidir cosas por posición). */
+function hash3(seed, a, b, c = 0) {
+  let h = seed ^ Math.imul(a, 0x27d4eb2d) ^ Math.imul(b, 0x165667b1) ^ Math.imul(c, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** Hash a número en [0, 1). */
+const hash01 = (seed, a, b, c) => hash3(seed, a, b, c) / 4294967296;
+
+const smoothstep = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
 /**
- * Árbol simple: tronco de `trunk` bloques y copa redondeada de follaje de
- * radio `radius`. Solo pone follaje donde hay aire.
+ * Vetas de mineral: cuántas por chunk, en qué alturas y de qué tamaño.
+ * Los nombres y colores son propios de Megabrick.
  */
-export function placeTree(world, x, y, z, trunk = 4, radius = 2) {
-  for (let i = 0; i < trunk; i++) world.setBlock(x, y + i, z, BLOCK.LOG);
-  const top = y + trunk;
-  for (let dx = -radius; dx <= radius; dx++) {
-    for (let dy = -1; dy <= radius; dy++) {
-      for (let dz = -radius; dz <= radius; dz++) {
-        if (dx * dx + dy * dy * 1.6 + dz * dz > radius * radius + 0.6) continue;
-        if (world.getBlock(x + dx, top + dy, z + dz) === BLOCK.AIR) {
-          world.setBlock(x + dx, top + dy, z + dz, BLOCK.LEAVES);
+const ORES = [
+  { id: BLOCK.ORE_COPPER, perChunk: 9, minY: 4, maxY: 70, size: [4, 9] },
+  { id: BLOCK.ORE_AZURITE, perChunk: 4, minY: 4, maxY: 40, size: [3, 6] },
+  { id: BLOCK.ORE_SOLARITE, perChunk: 2, minY: 2, maxY: 20, size: [2, 4] },
+];
+
+export class TerrainGenerator {
+  /**
+   * @param {number} seed semilla del mundo (entero de 32 bits)
+   */
+  constructor(seed) {
+    this.seed = seed >>> 0;
+    // Un ruido distinto para cada rasgo, todos derivados de la semilla.
+    const noise = (salt) => createNoise2D(mulberry32(hash3(this.seed, salt, 7919)));
+    this.nContinent = noise(1); // elevación general (llanuras / zonas bajas)
+    this.nHills = noise(2); // colinas
+    this.nMountainMask = noise(3); // dónde hay montañas
+    this.nRidge = noise(4); // crestas de las montañas
+    this.nDetail = noise(5); // variación chica de la superficie
+    this.nForest = noise(6); // zonas de bosque
+    this.nDirt = noise(7); // espesor de la capa de tierra
+  }
+
+  /** Ruido fractal (fBm): suma de octavas, resultado aproximado en [-1, 1]. */
+  _fbm(noise, x, z, octaves) {
+    let sum = 0;
+    let amp = 1;
+    let freq = 1;
+    let norm = 0;
+    for (let i = 0; i < octaves; i++) {
+      sum += noise(x * freq, z * freq) * amp;
+      norm += amp;
+      amp *= 0.5;
+      freq *= 2;
+    }
+    return sum / norm;
+  }
+
+  /**
+   * Altura del terreno (y del bloque de la superficie) en la columna (x, z).
+   * Biomas: acá se van a mezclar las alturas según el bioma de la zona.
+   */
+  heightAt(x, z) {
+    const continent = this._fbm(this.nContinent, x / 220, z / 220, 4);
+    const hills = this._fbm(this.nHills, x / 70, z / 70, 3);
+    const detail = this.nDetail(x / 18, z / 18);
+    // Máscara de montañas: casi siempre 0; en algunas zonas sube a 1.
+    const mask = smoothstep(0.15, 0.6, this._fbm(this.nMountainMask, x / 420, z / 420, 2));
+    // Crestas: 1 - |ruido| hace picos afilados.
+    const ridge = 1 - Math.abs(this._fbm(this.nRidge, x / 110, z / 110, 3));
+
+    let h = SEA_LEVEL + 3;
+    h += continent * 12; // llanuras que a veces bajan del nivel del mar
+    h += hills * (4 + 6 * smoothstep(-0.2, 0.5, continent)); // colinas
+    h += detail * 1.2;
+    h += mask * ridge * ridge * 55; // montañas
+    return Math.max(2, Math.min(MAX_TERRAIN, Math.floor(h)));
+  }
+
+  /** ¿La columna (x, z) es costa o fondo de agua? (para poner arena) */
+  _isBeach(height) {
+    return height <= SEA_LEVEL + 1;
+  }
+
+  /**
+   * Genera los bloques de un chunk.
+   * @returns {{data: Uint8Array, maxY: number}}
+   */
+  generateChunk(cx, cz) {
+    const data = new Uint8Array(CHUNK_VOLUME);
+    const x0 = cx * CHUNK_SIZE;
+    const z0 = cz * CHUNK_SIZE;
+    let maxY = SEA_LEVEL;
+
+    // 1) Columnas: lecho primordial, piedra, tierra, superficie y agua.
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const x = x0 + lx;
+        const z = z0 + lz;
+        const h = this.heightAt(x, z);
+        const dirtDepth = 3 + (this.nDirt(x / 14, z / 14) > 0 ? 1 : 0);
+        const beach = this._isBeach(h);
+        const rocky = h >= ROCK_LINE;
+
+        let top;
+        let under;
+        if (rocky) {
+          top = BLOCK.STONE;
+          under = BLOCK.STONE;
+        } else if (beach) {
+          // Costas y fondo poco profundo de arena; más hondo, tierra.
+          top = h >= SEA_LEVEL - 5 ? BLOCK.SAND : BLOCK.DIRT;
+          under = top;
+        } else {
+          top = BLOCK.GRASS;
+          under = BLOCK.DIRT;
+        }
+
+        data[Chunk.index(lx, 0, lz)] = BLOCK.BEDROCK;
+        for (let y = 1; y <= h; y++) {
+          let id = BLOCK.STONE;
+          if (y === h) id = top;
+          else if (y >= h - dirtDepth) id = under; // dirtDepth bloques debajo de la superficie
+          data[Chunk.index(lx, y, lz)] = id;
+        }
+        for (let y = h + 1; y <= SEA_LEVEL; y++) data[Chunk.index(lx, y, lz)] = BLOCK.WATER;
+        if (h > maxY) maxY = h;
+      }
+    }
+
+    // 2) Vetas de mineral (solo reemplazan piedra).
+    // Cuevas: acá se van a tallar las cuevas con ruido 3D, antes de los árboles.
+    this._placeOres(data, cx, cz);
+
+    // 3) Árboles: se miran también las celdas vecinas, porque la copa de un
+    // árbol de otro chunk puede caer adentro de este.
+    maxY = Math.max(maxY, this._placeTrees(data, cx, cz));
+
+    return { data, maxY: Math.min(CHUNK_HEIGHT - 1, maxY) };
+  }
+
+  _placeOres(data, cx, cz) {
+    const rnd = mulberry32(hash3(this.seed, cx, cz, 31337));
+    for (const ore of ORES) {
+      for (let v = 0; v < ore.perChunk; v++) {
+        let x = Math.floor(rnd() * CHUNK_SIZE);
+        let z = Math.floor(rnd() * CHUNK_SIZE);
+        let y = ore.minY + Math.floor(rnd() * (ore.maxY - ore.minY));
+        const size = ore.size[0] + Math.floor(rnd() * (ore.size[1] - ore.size[0] + 1));
+        // Caminata al azar: la veta es un grupito de bloques pegados.
+        for (let i = 0; i < size; i++) {
+          if (x >= 0 && x < CHUNK_SIZE && z >= 0 && z < CHUNK_SIZE && y > 0 && y < CHUNK_HEIGHT) {
+            const idx = Chunk.index(x, y, z);
+            if (data[idx] === BLOCK.STONE) data[idx] = ore.id;
+          }
+          const dir = Math.floor(rnd() * 6);
+          if (dir === 0) x++;
+          else if (dir === 1) x--;
+          else if (dir === 2) y++;
+          else if (dir === 3) y--;
+          else if (dir === 4) z++;
+          else z--;
         }
       }
     }
   }
+
+  /**
+   * ¿Hay un árbol en la celda (gx, gz)? Devuelve su posición y forma, o null.
+   * Es una función pura de la semilla y la celda.
+   */
+  treeInCell(gx, gz) {
+    const x = gx * TREE_CELL + Math.floor(hash01(this.seed, gx, gz, 1) * TREE_CELL);
+    const z = gz * TREE_CELL + Math.floor(hash01(this.seed, gx, gz, 2) * TREE_CELL);
+    // Bosques donde el ruido es alto; árboles sueltos en el resto.
+    const forest = this.nForest(x / 90, z / 90);
+    const chance = forest > 0.25 ? 0.7 : forest > -0.1 ? 0.18 : 0.04;
+    if (hash01(this.seed, gx, gz, 3) >= chance) return null;
+    const ground = this.heightAt(x, z);
+    // Solo sobre césped: ni playa, ni agua, ni piedra pelada.
+    if (this._isBeach(ground) || ground >= ROCK_LINE - 4) return null;
+    const trunk = 4 + Math.floor(hash01(this.seed, gx, gz, 4) * 3);
+    return { x, z, base: ground + 1, trunk };
+  }
+
+  /** Coloca los árboles que tocan el chunk. Devuelve la altura máxima usada. */
+  _placeTrees(data, cx, cz) {
+    const x0 = cx * CHUNK_SIZE;
+    const z0 = cz * CHUNK_SIZE;
+    let maxY = 0;
+    const set = (x, y, z, id, onlyAir) => {
+      const lx = x - x0;
+      const lz = z - z0;
+      if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE || y < 0 || y >= CHUNK_HEIGHT) return;
+      const idx = Chunk.index(lx, y, lz);
+      if (onlyAir && data[idx] !== BLOCK.AIR) return;
+      data[idx] = id;
+      if (y > maxY) maxY = y;
+    };
+
+    const g0x = Math.floor((x0 - TREE_RADIUS) / TREE_CELL);
+    const g1x = Math.floor((x0 + CHUNK_SIZE - 1 + TREE_RADIUS) / TREE_CELL);
+    const g0z = Math.floor((z0 - TREE_RADIUS) / TREE_CELL);
+    const g1z = Math.floor((z0 + CHUNK_SIZE - 1 + TREE_RADIUS) / TREE_CELL);
+    for (let gz = g0z; gz <= g1z; gz++) {
+      for (let gx = g0x; gx <= g1x; gx++) {
+        const t = this.treeInCell(gx, gz);
+        if (!t) continue;
+        const top = t.base + t.trunk; // primera altura por encima del tronco
+        // Copa: dos capas anchas, una más chica y la punta.
+        for (let dy = -2; dy <= 1; dy++) {
+          const r = dy <= -1 ? 2 : 1;
+          for (let dz = -r; dz <= r; dz++) {
+            for (let dx = -r; dx <= r; dx++) {
+              // Esquinas recortadas (al azar en las capas anchas) para que
+              // la copa no sea un cubo perfecto.
+              const corner = Math.abs(dx) === r && Math.abs(dz) === r;
+              if (corner && (r === 1 || hash01(this.seed, t.x + dx, t.z + dz, top + dy) < 0.6)) continue;
+              set(t.x + dx, top + dy, t.z + dz, BLOCK.LEAVES, true);
+            }
+          }
+        }
+        // Tronco (pisa las hojas de la copa).
+        for (let i = 0; i < t.trunk; i++) set(t.x, t.base + i, t.z, BLOCK.LOG, false);
+        // Debajo del tronco, tierra en vez de césped.
+        set(t.x, t.base - 1, t.z, BLOCK.DIRT, false);
+      }
+    }
+    return maxY;
+  }
+
+  /** ¿Están libres (aire) el bloque (x, y, z) y el de arriba? */
+  _isClear(x, y, z) {
+    const cx = Math.floor(x / CHUNK_SIZE);
+    const cz = Math.floor(z / CHUNK_SIZE);
+    const { data } = this.generateChunk(cx, cz);
+    const lx = x - cx * CHUNK_SIZE;
+    const lz = z - cz * CHUNK_SIZE;
+    return (
+      data[Chunk.index(lx, y, lz)] === BLOCK.AIR && data[Chunk.index(lx, y + 1, lz)] === BLOCK.AIR
+    );
+  }
+
+  /**
+   * Busca un buen lugar para aparecer: tierra firme cerca del origen (ni
+   * agua ni la cima de una montaña). Recorre anillos cada vez más grandes.
+   * @returns {{x: number, y: number, z: number}} posición de los pies
+   */
+  findSpawn() {
+    for (let r = 0; r <= 512; r += 8) {
+      const samples = r === 0 ? 1 : Math.ceil((2 * Math.PI * r) / 8);
+      for (let i = 0; i < samples; i++) {
+        const a = (i / samples) * Math.PI * 2;
+        const x = Math.round(Math.cos(a) * r);
+        const z = Math.round(Math.sin(a) * r);
+        const h = this.heightAt(x, z);
+        if (h <= SEA_LEVEL + 1 || h >= ROCK_LINE - 8) continue;
+        // Que no haya un tronco ni hojas donde van los pies y la cabeza.
+        if (!this._isClear(x, h + 1, z)) continue;
+        return { x: x + 0.5, y: h + 1, z: z + 0.5 };
+      }
+    }
+    return { x: 0.5, y: Math.max(SEA_LEVEL, this.heightAt(0, 0)) + 1, z: 0.5 };
+  }
 }
 
 /**
- * Muestrario de la etapa 1: una fila con un bloque de cada tipo, un pequeño
- * estanque y un árbol, para ver todas las texturas del atlas.
+ * Convierte un texto de semilla en un entero de 32 bits. Un número se usa
+ * tal cual; cualquier otro texto se transforma con un hash.
  */
-export function placeShowcase(world) {
-  const y = FLAT_SURFACE_Y;
-  const row = [
-    BLOCK.GRASS,
-    BLOCK.DIRT,
-    BLOCK.STONE,
-    BLOCK.BEDROCK,
-    BLOCK.SAND,
-    BLOCK.LOG,
-    BLOCK.LEAVES,
-    BLOCK.ORE_COPPER,
-    BLOCK.ORE_AZURITE,
-    BLOCK.ORE_SOLARITE,
-    BLOCK.PLANKS,
-    BLOCK.STONE_BRICK,
-    BLOCK.GLASS,
-  ];
-  row.forEach((id, i) => world.setBlock(4 + i * 2, y, 10, id));
-
-  // Estanque: el césped se reemplaza por agua y el borde por arena.
-  for (let x = 19; x <= 25; x++) {
-    for (let z = 15; z <= 20; z++) {
-      const edge = x === 19 || x === 25 || z === 15 || z === 20;
-      world.setBlock(x, y - 1, z, edge ? BLOCK.SAND : BLOCK.WATER);
-    }
+export function parseSeed(text) {
+  const s = String(text ?? '').trim();
+  if (/^-?\d+$/.test(s)) return Number(BigInt.asUintN(32, BigInt(s)));
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-
-  placeTree(world, 8, y, 18, 4, 2);
+  return h >>> 0;
 }

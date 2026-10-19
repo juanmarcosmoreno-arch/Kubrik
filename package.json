@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/juanmarcosmoreno-arch/Kubrik#readme",
   "dependencies": {
+    "simplex-noise": "^4.0.3",
     "three": "^0.180.0"
   },
   "devDependencies": {
