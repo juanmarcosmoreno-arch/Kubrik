@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { BLOCK, getBlock } from './blocks.js';
 import { CHUNK_HEIGHT, CHUNK_SIZE, Chunk } from './Chunk.js';
-import { buildChunkMesh } from './Mesher.js';
+import { WATER_SURFACE, buildChunkMesh } from './Mesher.js';
 
 /** Clave de un chunk en el Map: "cx,cz". */
 export function chunkKey(cx, cz) {
@@ -103,6 +103,25 @@ export class World {
   isSolid(x, y, z) {
     if (y < 0) return true;
     return getBlock(this.getBlock(x, y, z)).solid;
+  }
+
+  /** ¿Está cargado el chunk que contiene la columna (x, z)? */
+  isLoadedAt(x, z) {
+    return this.chunks.has(chunkKey(toChunkCoord(Math.floor(x)), toChunkCoord(Math.floor(z))));
+  }
+
+  /**
+   * ¿El punto (x, y, z) (coordenadas reales, no de bloque) está dentro del
+   * agua? Tiene en cuenta que la superficie del agua sin agua arriba está
+   * un poco más baja que el borde del bloque.
+   */
+  isWaterAt(x, y, z) {
+    const bx = Math.floor(x);
+    const by = Math.floor(y);
+    const bz = Math.floor(z);
+    if (!getBlock(this.getBlock(bx, by, bz)).liquid) return false;
+    if (getBlock(this.getBlock(bx, by + 1, bz)).liquid) return true;
+    return y - by < WATER_SURFACE;
   }
 
   /**

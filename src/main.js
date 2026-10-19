@@ -23,6 +23,9 @@ import { Menu } from './ui/Menu.js';
 const MAX_DT = 0.1;
 // Color de fondo de la pantalla de inicio (el mismo negro del logo).
 const TITLE_BG = 0x0a0a0a;
+// Campo de visión vertical (grados) y cuánto se abre al correr.
+const BASE_FOV = 75;
+const SPRINT_FOV_FACTOR = 1.12;
 
 /**
  * Opciones que por ahora se eligen en la URL (el menú de mundos llega en la
@@ -57,7 +60,7 @@ class Game {
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    this.camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 1000);
 
     // --- Texturas y materiales ---
     this.atlas = createAtlasTexture();
@@ -122,6 +125,13 @@ class Game {
 
     this.clock = new THREE.Clock();
     window.addEventListener('resize', () => this.onResize());
+    // Ctrl+W cierra la pestaña y ninguna página puede impedirlo; como Ctrl
+    // es correr y W avanzar, se pide confirmación antes de salir del juego.
+    window.addEventListener('beforeunload', (e) => {
+      if (this.state === STATE.TITLE) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
     this.watchPixelRatio();
     this.onResize();
     this.renderer.setAnimationLoop(() => this.frame());
@@ -192,13 +202,23 @@ class Game {
     a.root.visible = this.view.showsAvatar;
     a.root.position.copy(p.position);
     // Contento mientras sube rápido volando; normal el resto del tiempo.
-    a.setExpression(p.velocity.y > 3 ? 'feliz' : 'normal');
+    a.setExpression(p.flying && p.velocity.y > 3 ? 'feliz' : 'normal');
     a.update(this.state === STATE.PLAYING ? dt : 0, {
       yaw: p.yaw,
       pitch: p.pitch,
       speed: p.horizontalSpeed,
-      flying: p.flying && !p.isOnGround(this.world),
+      flying: p.flying && !p.onGround,
     });
+  }
+
+  /** Abre un poco el campo de visión al correr (con transición suave). */
+  updateFov(dt) {
+    const target = BASE_FOV * (this.player.sprinting ? SPRINT_FOV_FACTOR : 1);
+    const fov = this.camera.fov + (target - this.camera.fov) * (1 - Math.exp(-8 * dt));
+    if (Math.abs(fov - this.camera.fov) > 0.01) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   /** Un frame del loop principal. */
@@ -219,11 +239,21 @@ class Game {
     } else {
       if (this.state === STATE.PLAYING) {
         if (this.controls.wasPressed('KeyV')) this.hud.toast(this.view.cycle());
+        if (this.controls.wasPressed('KeyF')) {
+          this.player.setFlying(!this.player.flying);
+          this.hud.toast(
+            this.player.flying ? 'Vuelo activado: Espacio sube, Shift baja' : 'Vuelo desactivado',
+          );
+        }
         this.player.update(dt, this.controls, this.world);
+        this.updateFov(dt);
       }
       // Primero la cámara: decide si hay lugar para mostrar al personaje.
       this.view.update(this.player, this.world);
       this.updateAvatar(dt);
+      // Con la cámara bajo el agua todo se ve azul y cerca (en cualquier vista).
+      const cam = this.camera.position;
+      this.sky.setUnderwater(this.world.isWaterAt(cam.x, cam.y, cam.z));
       this.sky.update(dt, this.player.position);
       this.renderer.render(this.scene, this.camera);
     }

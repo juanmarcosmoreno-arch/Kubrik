@@ -14,7 +14,7 @@ import { tileUV } from '../render/atlasLayout.js';
 
 // Altura de la superficie del agua cuando no tiene agua arriba (un poco más
 // baja que un bloque entero, para que se note el nivel).
-const WATER_SURFACE = 0.875;
+export const WATER_SURFACE = 0.875;
 
 /**
  * Las 6 caras de un cubo. Para cada una: dirección del vecino, normal, la

@@ -21,8 +21,9 @@ El juego se construye por etapas. Siempre queda una versión jugable.
 |---|---|---|
 | 1 | Base jugable: cámara en primera persona, vuelo, piso de bloques, atlas procedural, FPS | ✅ |
 | 2 | Mundo por chunks y terreno procedural infinito | ✅ |
-| 3 | Física del jugador: gravedad, salto, colisiones, nado | ⏳ |
+| 3 | Física del jugador: gravedad, salto, colisiones, nado | ✅ |
 | 4 | Romper y poner bloques, hotbar, mira | ⏳ |
+| Extra | Multijugador: jugar en el mismo mundo desde otra computadora con un código | ⏳ (después de la 4) |
 | 5 | Guardado en IndexedDB y menú de mundos | ⏳ |
 | 6 | Ciclo día/noche, oclusión ambiental, sonidos, opciones | ⏳ |
 | 7 | Rendimiento: Web Workers, cola de chunks priorizada | ⏳ |
@@ -67,12 +68,21 @@ Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
 | Clic en **Continuar** o en cualquier parte (en pausa) | Volver al juego |
 | **W A S D** | Moverse |
 | **Mouse** | Mirar |
-| **Espacio** | Subir (modo vuelo) |
-| **Shift** | Bajar (modo vuelo) |
+| **Espacio** | Saltar (mantenido, salta cada vez que toca el piso). En el agua: nadar hacia arriba |
+| **Ctrl** (o doble toque de **W**) | Correr: más rápido y con la vista un poco más abierta |
+| **F** | Activar o desactivar el vuelo |
+| **Espacio / Shift** (volando) | Subir / bajar |
 | **V** | Cambiar la cámara: primera persona → tercera persona → de frente |
 | **Esc** | Soltar el mouse y pausar |
 
-Por ahora el jugador vuela. La gravedad, el salto y las colisiones llegan en la etapa 3.
+### Física
+
+- El jugador mide 1,8 bloques de alto y 0,6 de ancho, y choca contra los bloques. Su caja de colisión se mueve eje por eje y en pasos cortos, así que no atraviesa nada aunque caiga muy rápido.
+- Hay gravedad. El salto alcanza unos 1,25 bloques: un escalón de un bloque se sube saltando y dos bloques ya no.
+- En el agua te hundís despacio y nadás hacia arriba con Espacio. Para salir, nadá contra la orilla manteniendo Espacio. Con los ojos bajo el agua todo se ve azul.
+- Volando no hay gravedad: Espacio sube y Shift baja.
+
+> **Ctrl+W:** en el navegador, Ctrl+W cierra la pestaña y ninguna página puede impedirlo. Mientras jugás, Megabrick pide confirmación antes de cerrar. Si querés evitarlo del todo, corré con doble toque de W.
 
 ## El mundo
 

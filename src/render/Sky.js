@@ -7,6 +7,8 @@
 import * as THREE from 'three';
 
 export const SKY_COLOR = 0x8ccdf2;
+/** Color del agua vista desde adentro. */
+const UNDERWATER_COLOR = 0x2c5f94;
 
 export class Sky {
   /**
@@ -31,8 +33,10 @@ export class Sky {
 
     // Niebla lineal: empieza a notarse a mitad de camino y tapa todo justo
     // antes del borde del área cargada.
-    this.fog = new THREE.Fog(this.skyColor, 20, 100);
+    this.fog = new THREE.Fog(this.skyColor.clone(), 20, 100);
     scene.fog = this.fog;
+    this.underwater = false;
+    this._fogRange = { near: 20, far: 100 };
   }
 
   /**
@@ -41,8 +45,30 @@ export class Sky {
    * @param {number} edgeDistance distancia (bloques) al borde más cercano
    */
   setViewDistance(edgeDistance) {
-    this.fog.far = Math.max(8, edgeDistance - 2);
-    this.fog.near = this.fog.far * 0.45;
+    this._fogRange.far = Math.max(8, edgeDistance - 2);
+    this._fogRange.near = this._fogRange.far * 0.45;
+    this._applyFog();
+  }
+
+  /** Cambia entre la niebla normal y la de "bajo el agua" (azul y cercana). */
+  setUnderwater(on) {
+    if (on === this.underwater) return;
+    this.underwater = on;
+    this._applyFog();
+  }
+
+  _applyFog() {
+    if (this.underwater) {
+      this.fog.color.setHex(UNDERWATER_COLOR);
+      this.fog.near = 1;
+      this.fog.far = Math.min(20, this._fogRange.far);
+      this.scene.background = this.fog.color;
+    } else {
+      this.fog.color.copy(this.skyColor);
+      this.fog.near = this._fogRange.near;
+      this.fog.far = this._fogRange.far;
+      this.scene.background = this.skyColor;
+    }
   }
 
   /**

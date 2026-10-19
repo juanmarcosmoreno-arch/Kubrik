@@ -103,8 +103,11 @@ export class Controls {
 
   _onKeyDown(e) {
     if (!this.locked) return;
-    // Evitar que Espacio o las flechas desplacen la página mientras se juega.
-    if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+    // Evitar que Espacio o las flechas desplacen la página mientras se juega,
+    // y que Ctrl (correr) + una tecla dispare atajos del navegador (Ctrl+D
+    // marcadores, Ctrl+S guardar, etc.). Ctrl+W no se puede bloquear: el
+    // juego pide confirmación antes de cerrar (ver main.js).
+    if (e.code === 'Space' || e.code.startsWith('Arrow') || e.ctrlKey) e.preventDefault();
     if (!e.repeat) this.justPressed.add(e.code);
     this.keys.add(e.code);
   }
