@@ -47,6 +47,7 @@ export const LAYER = Object.freeze({
  *   (el vidrio y el agua sí; el follaje no, para que se vea frondoso).
  * - breakable: se puede romper.
  * - liquid: es un líquido (para nadar en la etapa 3).
+ * - sound: cómo suena al pisarlo, romperlo o ponerlo (ver audio/Sounds.js).
  */
 const DEFAULTS = {
   solid: true,
@@ -55,6 +56,7 @@ const DEFAULTS = {
   cullSame: true,
   breakable: true,
   liquid: false,
+  sound: 'stone',
 };
 
 function def(id, name, tiles, props = {}) {
@@ -80,13 +82,14 @@ register(
     cullSame: true,
     breakable: false,
     liquid: false,
+    sound: null,
   }),
 );
-register(def(BLOCK.GRASS, 'Césped', { top: 'grass_top', side: 'grass_side', bottom: 'dirt' }));
-register(def(BLOCK.DIRT, 'Tierra', 'dirt'));
+register(def(BLOCK.GRASS, 'Césped', { top: 'grass_top', side: 'grass_side', bottom: 'dirt' }, { sound: 'grass' }));
+register(def(BLOCK.DIRT, 'Tierra', 'dirt', { sound: 'dirt' }));
 register(def(BLOCK.STONE, 'Piedra', 'stone'));
 register(def(BLOCK.BEDROCK, 'Lecho primordial', 'bedrock', { breakable: false }));
-register(def(BLOCK.SAND, 'Arena', 'sand'));
+register(def(BLOCK.SAND, 'Arena', 'sand', { sound: 'sand' }));
 register(
   def(BLOCK.WATER, 'Agua', 'water', {
     solid: false,
@@ -94,25 +97,28 @@ register(
     layer: LAYER.TRANSLUCENT,
     breakable: false,
     liquid: true,
+    sound: 'water',
   }),
 );
-register(def(BLOCK.LOG, 'Tronco', { top: 'log_top', side: 'log_side', bottom: 'log_top' }));
+register(def(BLOCK.LOG, 'Tronco', { top: 'log_top', side: 'log_side', bottom: 'log_top' }, { sound: 'wood' }));
 register(
   def(BLOCK.LEAVES, 'Follaje', 'leaves', {
     opaque: false,
     layer: LAYER.CUTOUT,
     cullSame: false,
+    sound: 'leaves',
   }),
 );
 register(def(BLOCK.ORE_COPPER, 'Mineral de cobrizo', 'ore_copper'));
 register(def(BLOCK.ORE_AZURITE, 'Mineral de azurita', 'ore_azurite'));
 register(def(BLOCK.ORE_SOLARITE, 'Mineral de solarita', 'ore_solarite'));
-register(def(BLOCK.PLANKS, 'Tablones', 'planks'));
+register(def(BLOCK.PLANKS, 'Tablones', 'planks', { sound: 'wood' }));
 register(def(BLOCK.STONE_BRICK, 'Ladrillo de piedra', 'stone_brick'));
 register(
   def(BLOCK.GLASS, 'Vidrio', 'glass', {
     opaque: false,
     layer: LAYER.CUTOUT,
+    sound: 'glass',
   }),
 );
 

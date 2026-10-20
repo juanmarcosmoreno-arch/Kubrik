@@ -1,6 +1,6 @@
-// HUD: información superpuesta al juego (mira, FPS y avisos cortos). La
-// hotbar tiene su propio módulo (ui/Hotbar.js) y se agrega a este mismo
-// contenedor. En la etapa 6 se suman las coordenadas (F3).
+// HUD: información superpuesta al juego (mira, FPS, avisos cortos y, con
+// F3, coordenadas y datos del mundo). La hotbar tiene su propio módulo
+// (ui/Hotbar.js) y se agrega a este mismo contenedor.
 
 export class Hud {
   /**
@@ -19,6 +19,12 @@ export class Hud {
     this.fpsEl.textContent = '-- FPS';
     root.appendChild(this.fpsEl);
 
+    // Datos de depuración (F3): coordenadas, chunk, hacia dónde se mira, hora...
+    this.debugEl = document.createElement('div');
+    this.debugEl.className = 'hud-debug';
+    this.debugEl.hidden = true;
+    root.appendChild(this.debugEl);
+
     // Aviso corto en el centro (por ejemplo, al cambiar de cámara).
     this.toastEl = document.createElement('div');
     this.toastEl.className = 'hud-toast';
@@ -29,6 +35,22 @@ export class Hud {
     this._frames = 0;
     this._elapsed = 0;
     this.fps = 0;
+  }
+
+  /** ¿Se ven los datos de F3? */
+  get debugVisible() {
+    return !this.debugEl.hidden;
+  }
+
+  /** Muestra u oculta los datos de F3. */
+  toggleDebug() {
+    this.debugEl.hidden = !this.debugEl.hidden;
+  }
+
+  /** Texto de los datos de F3 (una línea por renglón). */
+  setDebug(lines) {
+    const text = lines.join('\n');
+    if (this.debugEl.textContent !== text) this.debugEl.textContent = text;
   }
 
   /** Muestra u oculta el HUD completo. */

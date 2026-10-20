@@ -49,6 +49,8 @@ const EYE_HEIGHT = 1.6;
 const MAX_EDITED_CHUNKS = 20000;
 /** Id del anfitrión en los mensajes. */
 const HOST_ID = 'h';
+/** Cada cuántos segundos el anfitrión manda la hora del día. */
+const TIME_SYNC_INTERVAL = 5;
 /** Tiempo máximo de espera (ms) del "welcome" (invitado) y del "hello" (anfitrión). */
 const WELCOME_TIMEOUT = 15000;
 const HELLO_TIMEOUT = 10000;
@@ -83,6 +85,7 @@ export class Multiplayer {
     /** Avisos para el jugador: (texto, esAdvertencia) => void. */
     this.onNotice = null;
     this._sendTimer = 0;
+    this._timeSync = 0;
     this._swing = 0;
     this._pending = null; // conexión en curso (crear o unirse)
     this._pendingWelcome = null;
@@ -251,7 +254,14 @@ export class Multiplayer {
     if (!this.active) return;
     const now = this._clock();
     for (const p of this.players.values()) p.update(dt, now);
-    if (this.role === 'host') this._drainEditQueues();
+    if (this.role === 'host') {
+      this._drainEditQueues();
+      this._timeSync -= dt;
+      if (this._timeSync <= 0) {
+        this._timeSync = TIME_SYNC_INTERVAL;
+        this._broadcast({ t: MSG.TIME, time: this.game.sky.time });
+      }
+    }
 
     this._sendTimer -= dt;
     if (this._sendTimer > 0) return;
@@ -437,6 +447,7 @@ export class Multiplayer {
       players: others,
       // Dónde está el anfitrión: el invitado aparece a su lado.
       spawn: { x: g.player.position.x, y: g.player.position.y, z: g.player.position.z },
+      time: g.sky.time,
     });
     this._broadcast({ t: MSG.JOIN, ...info }, from);
     this._addPlayer(info);
@@ -494,6 +505,9 @@ export class Multiplayer {
       case MSG.LEAVE:
         if (typeof msg.id === 'string') this._removePlayer(msg.id, false, true);
         break;
+      case MSG.TIME:
+        if (this.active && Number.isFinite(msg.time)) this.game.sky.setTime(msg.time);
+        break;
       default:
     }
   }
@@ -517,6 +531,7 @@ export class Multiplayer {
       seedText: typeof msg.seedText === 'string' ? msg.seedText.slice(0, 64) : String(msg.seed),
       edits: msg.edits,
       spawn: hostPos,
+      time: Number.isFinite(msg.time) ? msg.time : undefined,
       save: { foreign: true, name: `Mundo de ${host?.name ?? 'otro'}` },
     });
     if (hostPos) this._placeBeside(hostPos, others.map(cleanPosition).filter(Boolean));

@@ -1,14 +1,121 @@
-// Cielo e iluminación.
+// Cielo, sol, luna, estrellas, luces y niebla, con el ciclo de día y noche.
 //
-// Cielo celeste, luz ambiente, una luz direccional (el sol) y niebla del
-// mismo color del cielo que oculta el borde del mundo cargado. En la etapa 6
-// el ciclo día/noche va a variar estos colores e intensidades con la hora.
+// Un día dura 10 minutos. La hora es una fracción del día: 0 = medianoche,
+// 0,25 = amanece, 0,5 = mediodía, 0,75 = atardece. Con la altura del sol
+// cambian los colores del cielo (degradé del horizonte al cénit), las luces
+// (sol, luna y ambiente) y la niebla, que es del color del horizonte para
+// que lo lejano se funda con el cielo.
 
 import * as THREE from 'three';
 
-export const SKY_COLOR = 0x8ccdf2;
-/** Color del agua vista desde adentro. */
-const UNDERWATER_COLOR = 0x2c5f94;
+/** Duración de un día completo (segundos). */
+export const DAY_LENGTH = 600;
+/** Hora con la que empiezan los mundos nuevos (a media mañana). */
+export const START_TIME = 0.3;
+
+/** Color del agua vista desde adentro (de día). */
+const UNDERWATER_COLOR = new THREE.Color(0x2c5f94);
+/** Inclinación del recorrido del sol (no pasa justo por arriba). */
+const TILT = 0.38;
+
+/**
+ * Colores del cielo según la altura del sol (seno del ángulo): cénit,
+ * horizonte y resplandor alrededor del sol.
+ */
+const SKY_KEYS = [
+  { e: -1, top: 0x04060d, horizon: 0x0a1022, glow: 0x000000 },
+  { e: -0.3, top: 0x04060d, horizon: 0x0a1022, glow: 0x000000 },
+  { e: -0.1, top: 0x0f1735, horizon: 0x283764, glow: 0x3a2440 },
+  { e: 0.02, top: 0x34508f, horizon: 0xf0985a, glow: 0xff8a3d },
+  { e: 0.2, top: 0x5a9be0, horizon: 0xbcdaf0, glow: 0xffd9a0 },
+  { e: 0.45, top: 0x4a95e3, horizon: 0x8ccdf2, glow: 0xfff1d0 },
+  { e: 1, top: 0x4a95e3, horizon: 0x8ccdf2, glow: 0xfff1d0 },
+].map((k) => ({ e: k.e, top: new THREE.Color(k.top), horizon: new THREE.Color(k.horizon), glow: new THREE.Color(k.glow) }));
+
+const smoothstep = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** Textura de pixel art dibujada en un canvas chico (se ve pixelada a propósito). */
+function pixelTexture(size, draw) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  draw(canvas.getContext('2d'), size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** Disco de píxeles: llama a `color(dx, dy, r)` por cada píxel dentro del radio. */
+function disc(ctx, size, radius, color) {
+  const c = (size - 1) / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const r = Math.hypot(x - c, y - c);
+      if (r > radius) continue;
+      ctx.fillStyle = color(x - c, y - c, r);
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+}
+
+/** Sol: disco cálido con anillos más oscuros hacia el borde. */
+const sunTexture = () =>
+  pixelTexture(16, (ctx, size) =>
+    disc(ctx, size, 7.2, (dx, dy, r) => (r > 6.4 ? '#ffb347' : r > 5 ? '#ffd45e' : r > 2.6 ? '#ffec9a' : '#fffbe6')),
+  );
+
+/** Luna: disco pálido con algunos cráteres. */
+const moonTexture = () =>
+  pixelTexture(16, (ctx, size) => {
+    const craters = [
+      [-2, -2, 1.6],
+      [2.5, 1, 1.2],
+      [-1, 3, 1],
+      [3, -3, 0.8],
+    ];
+    disc(ctx, size, 6.4, (dx, dy, r) => {
+      if (r > 5.6) return '#b9c2d6';
+      for (const [cx, cy, cr] of craters) if (Math.hypot(dx - cx, dy - cy) <= cr) return '#c6cddd';
+      return '#e8ecf5';
+    });
+  });
+
+/** Resplandor suave alrededor del sol y la luna (degradé radial). */
+function glowTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,0.55)');
+  g.addColorStop(0.3, 'rgba(255,255,255,0.18)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** Un cuadrado que siempre mira a la cámara (sol, luna o resplandor). */
+function billboard(map, { additive = false } = {}) {
+  const material = new THREE.MeshBasicMaterial({
+    map,
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
+  mesh.frustumCulled = false;
+  return mesh;
+}
 
 export class Sky {
   /**
@@ -16,27 +123,143 @@ export class Sky {
    */
   constructor(scene) {
     this.scene = scene;
-    this.skyColor = new THREE.Color(SKY_COLOR);
-    scene.background = this.skyColor;
+    /** Hora del día (0 a 1). */
+    this.time = START_TIME;
+    /** Altura del sol: seno de su ángulo sobre el horizonte (-1 a 1). */
+    this.sunElevation = 0;
+    this.sunDirection = new THREE.Vector3();
+    this.horizonColor = new THREE.Color();
+    this.topColor = new THREE.Color();
+    this.glowColor = new THREE.Color();
+    this.fogColor = new THREE.Color();
+    scene.background = this.fogColor;
 
     // Luz ambiente: ilumina todo por igual para que las caras en sombra no
-    // queden negras.
+    // queden negras (de noche, más baja y azulada).
     this.ambient = new THREE.AmbientLight(0xffffff, 1.35);
     scene.add(this.ambient);
-
-    // Luz direccional (sol): da volumen, cada cara del cubo recibe un brillo
-    // distinto según su orientación.
+    // Sol y luna: luces direccionales que dan volumen a los bloques.
     this.sun = new THREE.DirectionalLight(0xfff3dc, 1.9);
-    this.sunDirection = new THREE.Vector3(0.45, 1, 0.3).normalize();
-    scene.add(this.sun);
-    scene.add(this.sun.target);
+    this.moon = new THREE.DirectionalLight(0x9fb4ff, 0);
+    for (const light of [this.sun, this.moon]) {
+      scene.add(light);
+      scene.add(light.target);
+    }
 
-    // Niebla lineal: empieza a notarse a mitad de camino y tapa todo justo
-    // antes del borde del área cargada.
-    this.fog = new THREE.Fog(this.skyColor.clone(), 20, 100);
+    // Cúpula del cielo: una esfera que sigue a la cámara, dibujada antes que
+    // todo y sin profundidad (hace de fondo).
+    this.dome = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 32, 16),
+      new THREE.ShaderMaterial({
+        uniforms: {
+          topColor: { value: this.topColor },
+          horizonColor: { value: this.horizonColor },
+          glowColor: { value: this.glowColor },
+          sunDir: { value: this.sunDirection },
+        },
+        vertexShader: /* glsl */ `
+          varying vec3 vDir;
+          void main() {
+            vDir = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }`,
+        fragmentShader: /* glsl */ `
+          uniform vec3 topColor;
+          uniform vec3 horizonColor;
+          uniform vec3 glowColor;
+          uniform vec3 sunDir;
+          varying vec3 vDir;
+          void main() {
+            vec3 d = normalize(vDir);
+            vec3 color = mix(horizonColor, topColor, smoothstep(0.0, 0.6, d.y));
+            // Resplandor alrededor del sol (fuerte al amanecer y al atardecer).
+            float s = max(dot(d, sunDir), 0.0);
+            color += glowColor * (pow(s, 6.0) * 0.35 + pow(s, 40.0) * 0.35) * smoothstep(-0.35, 0.05, d.y);
+            gl_FragColor = vec4(color, 1.0);
+            #include <colorspace_fragment>
+          }`,
+        side: THREE.BackSide,
+        depthTest: false,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    this.dome.renderOrder = -30;
+    this.dome.frustumCulled = false;
+    scene.add(this.dome);
+
+    // Estrellas: puntos al azar que giran con el cielo y se ven de noche.
+    const count = 700;
+    const positions = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+    let seed = 1234567;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < count; i++) {
+      // Dirección uniforme en la esfera.
+      const u = rand() * 2 - 1;
+      const a = rand() * Math.PI * 2;
+      const r = Math.sqrt(1 - u * u);
+      positions.set([r * Math.cos(a), u, r * Math.sin(a)], i * 3);
+      sizes[i] = rand() < 0.12 ? 2.6 : rand() < 0.5 ? 1.8 : 1.3;
+    }
+    const starGeometry = new THREE.BufferGeometry();
+    starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    starGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    this.starMaterial = new THREE.ShaderMaterial({
+      uniforms: { opacity: { value: 0 }, pixelRatio: { value: 1 } },
+      vertexShader: /* glsl */ `
+        attribute float size;
+        uniform float pixelRatio;
+        void main() {
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = size * pixelRatio;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float opacity;
+        void main() {
+          gl_FragColor = vec4(vec3(1.0, 0.97, 0.9) * opacity, 1.0);
+          #include <colorspace_fragment>
+        }`,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+    });
+    this.stars = new THREE.Points(starGeometry, this.starMaterial);
+    this.stars.frustumCulled = false;
+    scene.add(this.stars);
+
+    // Sol y luna con su resplandor.
+    this.sunDisc = billboard(sunTexture());
+    this.moonDisc = billboard(moonTexture());
+    this.sunGlow = billboard(glowTexture(), { additive: true });
+    this.moonGlow = billboard(glowTexture(), { additive: true });
+    for (const m of [this.sunGlow, this.moonGlow, this.sunDisc, this.moonDisc]) scene.add(m);
+
+    // Niebla lineal (los materiales la miden en distancia real a la cámara):
+    // tapa todo justo antes del borde del área cargada.
+    this.fog = new THREE.Fog(this.fogColor.clone(), 20, 100);
     scene.fog = this.fog;
     this.underwater = false;
     this._fogRange = { near: 20, far: 100 };
+    this._apply();
+  }
+
+  /** Pone la hora del día (0 a 1). */
+  setTime(time) {
+    this.time = ((Number(time) % 1) + 1) % 1 || 0;
+    this._apply();
+  }
+
+  /** Hora en formato reloj ("14:35"). */
+  get clock() {
+    const minutes = Math.floor(this.time * 24 * 60);
+    return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  }
+
+  /** ¿Es de noche? (el sol bajo el horizonte) */
+  get isNight() {
+    return this.sunElevation < -0.05;
   }
 
   /**
@@ -54,31 +277,97 @@ export class Sky {
   setUnderwater(on) {
     if (on === this.underwater) return;
     this.underwater = on;
+    for (const m of [this.dome, this.stars, this.sunDisc, this.moonDisc, this.sunGlow, this.moonGlow]) m.visible = !on;
+    this._applyFog();
+  }
+
+  /** Colores, luces y posición del sol según la hora. */
+  _apply() {
+    const angle = (this.time - 0.25) * Math.PI * 2; // 0 al amanecer, PI/2 al mediodía
+    this.sunDirection.set(Math.cos(angle), Math.sin(angle) * Math.cos(TILT), Math.sin(angle) * Math.sin(TILT));
+    const e = this.sunDirection.y;
+    this.sunElevation = e;
+
+    // Colores del cielo: entre las dos claves que rodean la altura del sol.
+    let i = 0;
+    while (i < SKY_KEYS.length - 2 && SKY_KEYS[i + 1].e < e) i++;
+    const a = SKY_KEYS[i];
+    const b = SKY_KEYS[i + 1];
+    const k = smoothstep(a.e, b.e, e);
+    this.topColor.lerpColors(a.top, b.top, k);
+    this.horizonColor.lerpColors(a.horizon, b.horizon, k);
+    this.glowColor.lerpColors(a.glow, b.glow, k);
+
+    // Luces: el sol se apaga al ponerse; de noche queda la luna y un
+    // ambiente bajo y azulado (oscuro, pero se ve dónde se camina).
+    const day = smoothstep(-0.18, 0.22, e);
+    this.daylight = day;
+    this.sun.intensity = 1.9 * smoothstep(-0.04, 0.2, e);
+    this.sun.color.setHex(0xffc58a).lerp(new THREE.Color(0xfff3dc), smoothstep(0.05, 0.35, e));
+    this.moon.intensity = 0.45 * smoothstep(0.02, -0.2, e);
+    this.ambient.intensity = 0.42 + 0.93 * day;
+    this.ambient.color.setHex(0x8796c8).lerp(new THREE.Color(0xffffff), day);
+    // El reflejo del ambiente en el personaje también baja de noche.
+    this.scene.environmentIntensity = 0.12 + 0.43 * day;
+
+    this.starMaterial.uniforms.opacity.value = smoothstep(-0.02, -0.22, e);
+    this.stars.rotation.set(0, 0, 0);
+    this.stars.rotateX(TILT);
+    this.stars.rotateZ(angle);
     this._applyFog();
   }
 
   _applyFog() {
     if (this.underwater) {
-      this.fog.color.setHex(UNDERWATER_COLOR);
+      this.fogColor.copy(UNDERWATER_COLOR).multiplyScalar(0.25 + 0.75 * (this.daylight ?? 1));
       this.fog.near = 1;
       this.fog.far = Math.min(20, this._fogRange.far);
-      this.scene.background = this.fog.color;
     } else {
-      this.fog.color.copy(this.skyColor);
+      this.fogColor.copy(this.horizonColor);
       this.fog.near = this._fogRange.near;
       this.fog.far = this._fogRange.far;
-      this.scene.background = this.skyColor;
     }
+    this.fog.color.copy(this.fogColor);
   }
 
   /**
-   * Actualiza el cielo. La luz direccional sigue al jugador para que, cuando
-   * haya sombras o el sol se mueva, siempre apunte a la zona visible.
-   * @param {number} _dt segundos desde el último frame (para el ciclo día/noche)
-   * @param {THREE.Vector3} center posición del jugador
+   * Avanza la hora y acomoda el cielo alrededor de la cámara.
+   * @param {number} dt segundos de juego (0 si el tiempo no corre)
+   * @param {THREE.PerspectiveCamera} camera
+   * @param {number} pixelRatio densidad de píxeles (tamaño de las estrellas)
    */
-  update(_dt, center) {
+  update(dt, camera, pixelRatio = 1) {
+    if (dt > 0) {
+      this.time = (this.time + dt / DAY_LENGTH) % 1;
+      this._apply();
+    }
+    const center = camera.getWorldPosition(this._center ?? (this._center = new THREE.Vector3()));
+    // Las luces siguen al jugador (apuntan siempre a la zona visible).
     this.sun.position.copy(center).addScaledVector(this.sunDirection, 100);
     this.sun.target.position.copy(center);
+    this.moon.position.copy(center).addScaledVector(this.sunDirection, -100);
+    this.moon.target.position.copy(center);
+
+    // Cúpula, estrellas, sol y luna: lejos, pero dentro del plano lejano
+    // (y más allá de la niebla, así el terreno siempre queda adelante).
+    const far = camera.far;
+    this.dome.position.copy(center);
+    this.dome.scale.setScalar(far * 0.98);
+    this.stars.position.copy(center);
+    this.stars.scale.setScalar(far * 0.96);
+    this.starMaterial.uniforms.pixelRatio.value = pixelRatio;
+    const place = (mesh, dir, size) => {
+      mesh.position.copy(center).addScaledVector(dir, far * 0.94);
+      mesh.scale.setScalar(far * 0.94 * size);
+      mesh.lookAt(center);
+    };
+    const moonDir = this._moonDir ?? (this._moonDir = new THREE.Vector3());
+    moonDir.copy(this.sunDirection).negate();
+    place(this.sunDisc, this.sunDirection, 0.11);
+    place(this.sunGlow, this.sunDirection, 0.5);
+    place(this.moonDisc, moonDir, 0.085);
+    place(this.moonGlow, moonDir, 0.3);
+    this.sunGlow.material.opacity = 0.9 * smoothstep(-0.15, 0.05, this.sunElevation);
+    this.moonGlow.material.opacity = 0.35 * smoothstep(0.1, -0.1, this.sunElevation);
   }
 }

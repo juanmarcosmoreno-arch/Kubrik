@@ -9,6 +9,7 @@
 //   guarda como un mundo propio ("Mundo de Ana").
 
 import { SaveStore } from './SaveStore.js';
+import { START_TIME } from '../render/Sky.js';
 
 /** Segundos entre autoguardados. */
 const AUTOSAVE_INTERVAL = 30;
@@ -163,6 +164,7 @@ export class WorldSaves {
         flying: p.flying,
       },
       hotbar: { slots: [...g.hotbar.slots], selected: g.hotbar.selected },
+      time: g.sky.time,
     };
     this.status = 'saving';
     this.onChange?.();
@@ -205,6 +207,7 @@ export class WorldSaves {
       edits,
       player,
       hotbar: Array.isArray(meta.hotbar?.slots) ? meta.hotbar : null,
+      time: isNum(meta.time) ? meta.time : START_TIME,
       save: { id: meta.id, name: cleanWorldName(meta.name) ?? 'Mundo', createdAt: meta.createdAt ?? null },
     };
   }

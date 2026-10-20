@@ -25,7 +25,7 @@ El juego se construye por etapas. Siempre queda una versión jugable.
 | 4 | Romper y poner bloques, hotbar, mira | ✅ |
 | Extra | Multijugador: jugar en el mismo mundo desde otra computadora con un código | ✅ |
 | 5 | Guardado en IndexedDB y menú de mundos | ✅ |
-| 6 | Ciclo día/noche, oclusión ambiental, sonidos, opciones | ⏳ |
+| 6 | Ciclo día/noche, oclusión ambiental, sonidos, opciones | ✅ |
 | 7 | Rendimiento: Web Workers, cola de chunks priorizada | ⏳ |
 
 ## Requisitos
@@ -53,9 +53,9 @@ npm run preview   # sirve el build de producción para probarlo
 
 ### Opciones en la dirección
 
-La semilla se elige al crear un mundo (**Nuevo mundo**). La distancia de render, por ahora, va en la dirección del juego; el menú de opciones llega en la etapa 6.
+La semilla se elige al crear un mundo (**Nuevo mundo**) y el resto en **Opciones** (en la pausa). Para pruebas también se puede usar la dirección:
 
-- `?distancia=8`: distancia de render en chunks, de 2 a 16. Por defecto es 6.
+- `?distancia=8`: distancia de render en chunks, de 2 a 16, solo para esa vez (manda sobre la de Opciones).
 - `?semilla=lo-que-quieras`: abre un mundo nuevo con esa semilla en vez del último mundo guardado. La misma semilla genera siempre el mismo terreno. Acepta texto o un número.
 
 Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
@@ -76,7 +76,8 @@ Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
 | **Clic derecho** | Poner el bloque elegido en la cara apuntada |
 | **1 – 9** o **rueda del mouse** | Elegir casilla de la hotbar |
 | **V** | Cambiar la cámara: primera persona → tercera persona → de frente |
-| **Esc** | Soltar el mouse y pausar |
+| **F3** | Mostrar u ocultar coordenadas, chunk, hacia dónde se mira, la hora y más datos |
+| **Esc** | Soltar el mouse y pausar (en la pausa: Opciones, Multijugador, Guardar y salir) |
 
 ### Física
 
@@ -103,7 +104,7 @@ Los mundos se guardan en el navegador (IndexedDB), en la misma computadora.
 
 - **Inicio:** **Continuar** abre el último mundo jugado. La primera vez dice **Jugar** y crea «Mundo 1». **Nuevo mundo** pide un nombre y una semilla opcional; si la semilla queda vacía, sale una al azar. **Mis mundos** muestra la lista para abrir o borrar mundos. Borrar pide confirmación con un segundo clic.
 - **Cuándo se guarda:** cada 30 segundos, al pausar, al cambiar de mundo, al ocultar la pestaña y con **Guardar y salir** (en la pausa), que además vuelve al inicio. En la pausa se ve si el mundo quedó guardado.
-- **Qué se guarda:** el nombre, la semilla, dónde está el jugador (y si vuela), la hotbar y **solo los chunks que cambiaron**, como diferencias con el terreno generado. El resto se vuelve a generar igual con la semilla. Cada guardado escribe solo los chunks que cambiaron desde el anterior.
+- **Qué se guarda:** el nombre, la semilla, dónde está el jugador (y si vuela), la hotbar, la hora del día y **solo los chunks que cambiaron**, como diferencias con el terreno generado. El resto se vuelve a generar igual con la semilla. Cada guardado escribe solo los chunks que cambiaron desde el anterior.
 - **Con el multijugador:** el mundo de una partida lo guarda quien la creó, incluido lo que construyen los invitados. Quien entra como invitado no lo guarda: en su pausa el botón dice **Salir**, que lo saca de la partida y lo devuelve a su último mundo propio. Si en cambio sale con **Salir de la partida** (en el panel de Multijugador), o se va quien la creó, y sigue jugando, el mundo queda como propio, con el nombre «Mundo de Ana», por ejemplo («Mundo de Ana 2» si ya hay uno). Durante una partida no se puede cambiar de mundo.
 
 **Límites.**
@@ -123,7 +124,7 @@ Podés jugar en el mismo mundo con amigos, cada uno desde su computadora:
 
 **Cómo funciona.**
 - **Conexión:** las computadoras se conectan directo entre sí con WebRTC. Para el primer contacto, que es intercambiar el código, se usa el servidor público y gratuito de [PeerJS](https://peerjs.com/), así que no hace falta un servidor propio y funciona desde GitHub Pages.
-- **Qué viaja por la red:** el terreno no. Cada computadora lo genera con la semilla, y solo viajan las posiciones y los cambios de bloques.
+- **Qué viaja por la red:** el terreno no. Cada computadora lo genera con la semilla, y solo viajan las posiciones, los cambios de bloques y la hora (todos ven el mismo cielo).
 - **El anfitrión:** quien crea la partida ordena los cambios para que todos terminen viendo el mismo mundo. También revisa todo lo que mandan los demás, porque un jugador podría usar una versión modificada del juego. No acepta bloques inválidos, ni romper o poner lecho primordial, ni cambios lejos de donde está el jugador. Aplica como mucho 30 cambios por segundo por jugador (con ráfagas de hasta 60). Los que sobran esperan en fila y, si son demasiados, se rechazan y se le devuelve el bloque real a quien los hizo. Las posiciones de más de 30 por segundo se descartan. Los mensajes viajan en formato MsgPack, que no se puede usar para colgar la pestaña de otro con un mensaje armado a propósito.
 
 **Límites.**
@@ -142,7 +143,14 @@ El mundo es infinito y se genera a medida que te movés, en chunks de 16 × 16 b
 - **Árboles:** se agrupan en bosques y también aparecen sueltos. Sus copas pasan de un chunk a otro sin cortarse.
 - **Minerales:** cobrizo, azurita y solarita aparecen en vetas dentro de la piedra. Cuanto más raro el mineral, más hondo.
 - **Carga de chunks:** se generan y mallan primero los más cercanos al jugador, con un tope de tiempo por frame para no trabar el juego. Los lejanos se liberan de la memoria.
-- **Niebla:** tiene el color del cielo y tapa el borde del área cargada.
+- **Niebla:** tiene el color del horizonte (cambia con la hora) y tapa el borde del área cargada.
+
+## Ambiente
+
+- **Día y noche:** un día dura 10 minutos. El cielo es un degradé del horizonte al cénit que cambia con la hora: celeste de día, naranja y rosado al amanecer y al atardecer (con un resplandor alrededor del sol) y azul muy oscuro de noche, con estrellas que giran con el cielo. El sol y la luna son de pixel art, dibujados por código. De noche baja la luz, pero se ve dónde se camina (hay luz de luna). La hora corre mientras se juega; en pausa se frena, salvo en una partida multijugador. Los mundos nuevos empiezan a media mañana.
+- **Oclusión ambiental:** cada esquina de cada cara se oscurece según cuántos bloques la rodean, así los rincones, la base de las paredes y los huecos quedan en penumbra y se lee mejor el volumen.
+- **Sonidos:** se generan con Web Audio, sin archivos. Hay pasos según lo que se pisa (pasto, tierra, piedra, madera, arena, hojas, vidrio), golpe al caer de alto, chapuzón y brazadas en el agua, y sonidos al romper y poner bloques. Cada vez suenan un poco distinto. En el multijugador también se oye lo que rompen o ponen los demás si están cerca. El sonido arranca con el primer clic o tecla (así lo exigen los navegadores).
+- **Opciones** (en la pausa): distancia de render (2 a 16 chunks), sensibilidad del mouse, campo de visión (60° a 100°) y volumen. Se aplican al momento y se recuerdan en el navegador. **Valores de fábrica** vuelve a los de siempre.
 
 ## Personaje
 
@@ -168,7 +176,7 @@ src/
     blocks.js           → tipos de bloque y sus propiedades
     Chunk.js            → datos de un chunk de 16×128×16 (Uint8Array, 0 = aire)
     World.js            → chunks alrededor del jugador (carga/descarga), get/set de bloques, mallas
-    Mesher.js           → una malla por chunk con solo las caras visibles (sin DOM, apto para workers)
+    Mesher.js           → una malla por chunk con solo las caras visibles y oclusión por vértice (sin DOM, apto para workers)
     TerrainGen.js       → terreno procedural con semilla: alturas, capas, agua, árboles y minerales
   player/
     Player.js           → posición, orientación, física (colisiones AABB, salto, nado, vuelo)
@@ -182,7 +190,7 @@ src/
     atlasLayout.js      → ubicación de cada textura en el atlas (sin DOM, apto para workers)
     textures.js         → dibujo procedural del atlas (pixel art 16×16)
     materials.js        → materiales por capa: opaca, recortada (hojas/vidrio) y translúcida (agua)
-    Sky.js              → cielo, iluminación y niebla (después también día/noche)
+    Sky.js              → día y noche: cielo en degradé, sol, luna, estrellas, luces y niebla
     avatarTextures.js   → cara, gorra y logos del personaje dibujados en canvas (6 colores, 5 expresiones)
     CharacterPreview.js → personaje girando en la pantalla de inicio
     BlockOutline.js     → contorno del bloque apuntado
@@ -190,17 +198,20 @@ src/
     blockGeometry.js    → geometría de un bloque suelto
     blockIcons.js       → íconos isométricos de los bloques para la hotbar
   ui/
-    Hud.js              → mira, FPS y avisos (después, coordenadas con F3)
+    Hud.js              → mira, FPS, avisos y datos de F3
     Hotbar.js           → las 9 casillas de bloques
     Menu.js             → pantalla de inicio (con selector de color) y menú de pausa
     MultiplayerMenu.js  → panel de multijugador, lista de jugadores y datos en la pausa
     WorldsMenu.js       → Continuar/Jugar, nuevo mundo, lista de mundos (jugar y borrar) y estado del guardado
+    OptionsMenu.js      → opciones: distancia de render, sensibilidad, campo de visión y volumen
+  audio/
+    Sounds.js           → sonidos con Web Audio (pasos, romper, poner, agua) y pasos del jugador
   net/
     protocol.js         → códigos de partida, mensajes y validación de lo que llega por la red
     Session.js          → conexión WebRTC con PeerJS (anfitrión e invitados)
     Multiplayer.js      → estado de los jugadores y cambios de bloques compartidos
   save/
-    Preferences.js      → preferencias del jugador (color del personaje y nombre)
+    Preferences.js      → preferencias del jugador (color del personaje, nombre y opciones)
     SaveStore.js        → base IndexedDB: registro de cada mundo y sus chunks cambiados
     WorldSaves.js       → mundo actual, autoguardado, cargar, borrar y copias de partidas
 ```

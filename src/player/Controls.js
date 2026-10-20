@@ -134,7 +134,8 @@ export class Controls {
     // y que Ctrl (correr) + una tecla dispare atajos del navegador (Ctrl+D
     // marcadores, Ctrl+S guardar, etc.). Ctrl+W no se puede bloquear: el
     // juego pide confirmación antes de cerrar (ver main.js).
-    if (e.code === 'Space' || e.code.startsWith('Arrow') || e.ctrlKey) e.preventDefault();
+    // F3 (datos del mundo) abre la búsqueda en algunos navegadores.
+    if (e.code === 'Space' || e.code.startsWith('Arrow') || e.ctrlKey || e.code === 'F3') e.preventDefault();
     if (!e.repeat) this.justPressed.add(e.code);
     this.keys.add(e.code);
   }

@@ -1,4 +1,4 @@
-// Preferencias simples del jugador (por ahora, el color del personaje).
+// Preferencias simples del jugador (color del personaje, nombre y opciones).
 //
 // Se guardan en localStorage del navegador. Si no está disponible (modo
 // privado, almacenamiento bloqueado) se sigue jugando con los valores por

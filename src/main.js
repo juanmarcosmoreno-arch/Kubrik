@@ -4,8 +4,9 @@ import './style.css';
 import * as THREE from 'three';
 import { createAtlasTexture } from './render/textures.js';
 import { createBlockMaterials } from './render/materials.js';
-import { Sky } from './render/Sky.js';
-import { World } from './world/World.js';
+import { START_TIME, Sky } from './render/Sky.js';
+import { World, toChunkCoord } from './world/World.js';
+import { BLOCK, getBlock } from './world/blocks.js';
 import { TerrainGenerator, parseSeed } from './world/TerrainGen.js';
 import { Player } from './player/Player.js';
 import { Controls } from './player/Controls.js';
@@ -26,22 +27,23 @@ import { Multiplayer } from './net/Multiplayer.js';
 import { MultiplayerMenu } from './ui/MultiplayerMenu.js';
 import { WorldSaves } from './save/WorldSaves.js';
 import { WorldsMenu } from './ui/WorldsMenu.js';
+import { OptionsMenu, loadOptions } from './ui/OptionsMenu.js';
+import { Footsteps, HEARING_DISTANCE, Sounds } from './audio/Sounds.js';
 
 // Paso de tiempo máximo por frame: si el navegador se traba, el juego no
 // "salta" de golpe.
 const MAX_DT = 0.1;
 // Color de fondo de la pantalla de inicio (el mismo negro del logo).
 const TITLE_BG = 0x0a0a0a;
-// Campo de visión vertical (grados) y cuánto se abre al correr.
-const BASE_FOV = 75;
+// Cuánto se abre el campo de visión al correr.
 const SPRINT_FOV_FACTOR = 1.12;
 
 /**
- * Opciones que se pueden elegir en la URL (el menú de opciones llega en la
- * etapa 6):
+ * Opciones que se pueden elegir en la URL (el resto, en Opciones):
  *   ?semilla=texto-o-número   abre un mundo nuevo con esa semilla (en vez
  *                             del último mundo guardado)
- *   ?distancia=6              distancia de render en chunks (2 a 16)
+ *   ?distancia=6              distancia de render en chunks (2 a 16) para
+ *                             esta vez (manda sobre la de Opciones)
  */
 function readUrlOptions() {
   const params = new URLSearchParams(window.location.search);
@@ -51,6 +53,7 @@ function readUrlOptions() {
     seedText,
     seedGiven: Boolean(params.get('semilla')?.trim()),
     seed: parseSeed(seedText),
+    distanceGiven: Number.isFinite(distance),
     renderDistance: Number.isFinite(distance) ? Math.max(2, Math.min(16, distance)) : 6,
   };
 }
@@ -70,15 +73,20 @@ class Game {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     container.appendChild(this.renderer.domElement);
 
+    // --- Opciones (las de la pausa; ?distancia= en la URL manda esta vez) ---
+    this.prefs = loadOptions();
+    this.options = readUrlOptions();
+    if (this.options.distanceGiven) this.prefs.renderDistance = this.options.renderDistance;
+    else this.options.renderDistance = this.prefs.renderDistance;
+
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 1000);
+    this.camera = new THREE.PerspectiveCamera(this.prefs.fov, window.innerWidth / window.innerHeight, 0.1, 1000);
 
     // --- Texturas y materiales ---
     this.atlas = createAtlasTexture();
     this.materials = createBlockMaterials(this.atlas.texture);
 
     // --- Mundo ---
-    this.options = readUrlOptions();
     this.generator = new TerrainGenerator(this.options.seed);
     this.world = new World(this.materials, this.generator, {
       renderDistance: this.options.renderDistance,
@@ -114,6 +122,8 @@ class Game {
       scene.environment = env;
       scene.environmentIntensity = 0.55;
     }
+    // En el juego, el reflejo depende de la hora (lo maneja el cielo).
+    this.sky.setTime(START_TIME);
     this.stageEl = document.getElementById('character-stage');
     // La cámara va en la escena para poder colgarle el bloque en la mano.
     this.scene.add(this.camera);
@@ -122,6 +132,20 @@ class Game {
     this.controls.onLockChange = (locked) => this.onLockChange(locked);
     this.controls.onLockError = () =>
       this.menu.setMessage('No se pudo capturar el mouse. Esperá un segundo y probá de nuevo.');
+    this.baseSensitivity = this.controls.sensitivity;
+    this.controls.sensitivity = (this.baseSensitivity * this.prefs.sensitivity) / 100;
+
+    // --- Sonido ---
+    this.sounds = new Sounds();
+    this.sounds.setVolume(this.prefs.volume / 100);
+    this.footsteps = new Footsteps(this.sounds);
+    // El navegador deja sonar recién después de un clic o una tecla.
+    const unlockAudio = () => this.sounds.unlock();
+    document.addEventListener('pointerdown', unlockAudio, true);
+    document.addEventListener('keydown', unlockAudio, true);
+    // Lo que rompen o ponen los demás jugadores, si está cerca.
+    this._onWorldEdit = (e) => this.playRemoteEdit(e);
+    this.world.editListeners.add(this._onWorldEdit);
 
     // --- Interfaz ---
     this.hud = new Hud(document.getElementById('hud'));
@@ -136,10 +160,11 @@ class Game {
       player: this.player,
       hotbar: this.hotbar,
       outline: this.outline,
-      onAction: () => {
+      onAction: (action, id) => {
         this.heldItem.swing();
         this.avatar.swing();
         this.multiplayer.countAction();
+        this.sounds.play(action, id);
       },
     });
     this.menu = new Menu({
@@ -158,6 +183,9 @@ class Game {
       onPauseMessage: (text) => this.menu.setMessage(text, true),
     });
     this.multiplayerMenu.onBeforeJoin = () => this.beforeJoin();
+
+    // --- Opciones ---
+    this.optionsMenu = new OptionsMenu(this.prefs, (key, value) => this.applyOption(key, value));
 
     // --- Mundos guardados ---
     this.saves = new WorldSaves(this);
@@ -251,9 +279,10 @@ class Game {
    * @param {{x: number, y: number, z: number}} [o.spawn] dónde aparece (si no, se busca)
    * @param {{yaw: number, pitch: number, flying?: boolean}} [o.look] hacia dónde mira y si vuela
    * @param {{slots: number[], selected: number}} [o.hotbar]
+   * @param {number} [o.time] hora del día (0 a 1; si no se indica, sigue la actual)
    * @param {object} [o.save] datos del guardado de este mundo (ver WorldSaves.setCurrent)
    */
-  loadWorld({ seed, seedText, edits, spawn, look, hotbar, save }) {
+  loadWorld({ seed, seedText, edits, spawn, look, hotbar, time, save }) {
     this.saves.saveIfWorthIt();
     this.world.dispose();
     this.scene.remove(this.world.group);
@@ -264,7 +293,9 @@ class Game {
       renderDistance: this.options.renderDistance,
     });
     this.world.importEdits(edits);
+    this.world.editListeners.add(this._onWorldEdit);
     this.scene.add(this.world.group);
+    if (time !== undefined) this.sky.setTime(time);
     this.interaction.world = this.world;
     this.applyRenderDistance();
     const s = spawn ?? this.generator.findSpawn();
@@ -284,6 +315,7 @@ class Game {
       spawn: data.player,
       look: data.player ?? { yaw: 0, pitch: -0.1 },
       hotbar: data.hotbar ?? { slots: DEFAULT_HOTBAR, selected: 0 },
+      time: data.time,
       save: data.save,
     });
   }
@@ -351,6 +383,7 @@ class Game {
       seedText: seedText || String(seed),
       look: { yaw: 0, pitch: -0.1 },
       hotbar: { slots: DEFAULT_HOTBAR, selected: 0 },
+      time: START_TIME,
       save: { name },
     });
     this.controls.lock();
@@ -426,6 +459,7 @@ class Game {
       seedText: String(seed),
       look: { yaw: 0, pitch: -0.1 },
       hotbar: { slots: DEFAULT_HOTBAR, selected: 0 },
+      time: START_TIME,
     });
   }
 
@@ -536,9 +570,58 @@ class Game {
     });
   }
 
+  /** Aplica una opción cambiada en el menú de Opciones. */
+  applyOption(key, value) {
+    if (key === 'renderDistance') {
+      this.options.renderDistance = value;
+      this.world.setRenderDistance(value);
+      this.applyRenderDistance();
+    } else if (key === 'sensitivity') {
+      this.controls.sensitivity = (this.baseSensitivity * value) / 100;
+    } else if (key === 'fov') {
+      this.camera.fov = value;
+      this.camera.updateProjectionMatrix();
+    } else if (key === 'volume') {
+      this.sounds.setVolume(value / 100);
+      this.sounds.play('step', BLOCK.GRASS); // para escuchar cómo queda
+    }
+  }
+
+  /** Lo que rompe o pone otro jugador suena si está cerca (más bajo cuanto más lejos). */
+  playRemoteEdit({ x, y, z, id, prev, source }) {
+    if (source !== 'remote' || prev === null || prev === id || this.state !== STATE.PLAYING) return;
+    const p = this.player.position;
+    const d = Math.hypot(x + 0.5 - p.x, y + 0.5 - (p.y + 1.6), z + 0.5 - p.z);
+    if (d > HEARING_DISTANCE) return;
+    const loudness = 1 - d / HEARING_DISTANCE;
+    if (id === BLOCK.AIR || getBlock(id).liquid) this.sounds.play('break', prev, loudness);
+    else this.sounds.play('place', id, loudness);
+  }
+
+  /** Datos de F3: dónde está el jugador, hacia dónde mira, la hora y el mundo. */
+  updateDebug() {
+    const p = this.player.position;
+    const bx = Math.floor(p.x);
+    const by = Math.floor(p.y);
+    const bz = Math.floor(p.z);
+    // Adelante es -Z (norte) con yaw 0; girar a la izquierda sube el yaw.
+    const directions = ['norte (-Z)', 'oeste (-X)', 'sur (+Z)', 'este (+X)'];
+    const facing = directions[((Math.round(this.player.yaw / (Math.PI / 2)) % 4) + 4) % 4];
+    const { loaded, meshed } = this.world.stats;
+    this.hud.setDebug([
+      `XYZ: ${p.x.toFixed(2)} / ${p.y.toFixed(2)} / ${p.z.toFixed(2)}`,
+      `Bloque: ${bx} ${by} ${bz}  ·  Chunk: ${toChunkCoord(bx)} ${toChunkCoord(bz)}`,
+      `Mirando al ${facing}`,
+      `Debajo: ${getBlock(this.world.getBlock(bx, by - 1, bz)).name}`,
+      `Hora: ${this.sky.clock} (${this.sky.isNight ? 'noche' : 'día'})`,
+      `Semilla: ${this.options.seedText}`,
+      `Chunks: ${meshed} visibles, ${loaded} en memoria  ·  distancia ${this.world.renderDistance}`,
+    ]);
+  }
+
   /** Abre un poco el campo de visión al correr (con transición suave). */
   updateFov(dt) {
-    const target = BASE_FOV * (this.player.sprinting ? SPRINT_FOV_FACTOR : 1);
+    const target = this.prefs.fov * (this.player.sprinting ? SPRINT_FOV_FACTOR : 1);
     const fov = this.camera.fov + (target - this.camera.fov) * (1 - Math.exp(-8 * dt));
     if (Math.abs(fov - this.camera.fov) > 0.01) {
       this.camera.fov = fov;
@@ -571,7 +654,9 @@ class Game {
             this.player.flying ? 'Vuelo activado: Espacio sube, Shift baja' : 'Vuelo desactivado',
           );
         }
+        if (this.controls.wasPressed('F3')) this.hud.toggleDebug();
         this.player.update(dt, this.controls, this.world);
+        this.footsteps.update(dt, this.player, this.world);
         this.updateHotbarInput();
         this.interaction.update(dt, this.controls);
         this.updateFov(dt);
@@ -588,7 +673,11 @@ class Game {
       // Con la cámara bajo el agua todo se ve azul y cerca (en cualquier vista).
       const cam = this.camera.position;
       this.sky.setUnderwater(this.world.isWaterAt(cam.x, cam.y, cam.z));
-      this.sky.update(dt, this.player.position);
+      // La hora corre mientras se juega (y en pausa si hay partida, para
+      // que todos sigan con la misma hora).
+      const timeRuns = this.state === STATE.PLAYING || this.multiplayer.active;
+      this.sky.update(timeRuns ? dt : 0, this.camera, this.renderer.getPixelRatio());
+      if (this.hud.debugVisible) this.updateDebug();
       this.renderer.render(this.scene, this.camera);
     }
 

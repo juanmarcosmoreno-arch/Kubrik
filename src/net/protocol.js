@@ -9,7 +9,7 @@ import { CHUNK_HEIGHT } from '../world/Chunk.js';
 import { EXPRESSIONS, isVariant } from '../render/avatarTextures.js';
 
 /** Versión del protocolo: invitado y anfitrión tienen que coincidir. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Prefijo de los IDs en el servidor de PeerJS (evita choques con otras apps). */
 const PEER_PREFIX = 'megabrick-v1-';
@@ -33,6 +33,7 @@ export const MSG = Object.freeze({
   EDIT: 'edit', // cambio de un bloque
   JOIN: 'join', // anfitrión → todos: entró alguien
   LEAVE: 'leave', // anfitrión → todos: se fue alguien
+  TIME: 'time', // anfitrión → todos: hora del día (todos ven el mismo cielo)
 });
 
 /** Código nuevo al azar, por ejemplo "K7QX2M". */

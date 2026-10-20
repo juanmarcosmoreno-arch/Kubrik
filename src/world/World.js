@@ -25,6 +25,11 @@ export function toLocalCoord(v) {
   return ((v % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 }
 
+/** Un chunk y sus 8 vecinos (desplazamientos en chunks). */
+const NEIGHBORHOOD = [
+  [0, 0], [-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1],
+];
+
 /** ¿Es un ID de bloque que existe? */
 const isKnownBlock = (id) => Boolean(BLOCKS[id]);
 
@@ -56,7 +61,10 @@ export class World {
     this.edits = new Map();
     /** Claves de los chunks con cambios que todavía no se guardaron. */
     this.unsaved = new Set();
-    /** Funciones que se llaman con cada cambio: ({x, y, z, id}) => void. */
+    /**
+     * Funciones que se llaman con cada cambio: ({x, y, z, id, prev, source}) => void
+     * (prev: el bloque que había, o null si el chunk no estaba cargado).
+     */
     this.editListeners = new Set();
     this.setRenderDistance(renderDistance);
   }
@@ -68,12 +76,15 @@ export class World {
    */
   setRenderDistance(chunks) {
     this.renderDistance = Math.max(2, Math.min(16, Math.round(chunks)));
-    const load = this.renderDistance + 1;
+    // Un chunk se malla cuando están sus 8 vecinos (también en diagonal, por
+    // la oclusión de las esquinas): se cargan datos hasta 1,5 chunks más allá.
+    const load = this.renderDistance + 1.5;
     // Desplazamientos (en chunks) dentro del radio de carga, del más cercano
     // al más lejano: ese es el orden de prioridad.
     this._offsets = [];
-    for (let dz = -load; dz <= load; dz++) {
-      for (let dx = -load; dx <= load; dx++) {
+    const span = Math.ceil(load);
+    for (let dz = -span; dz <= span; dz++) {
+      for (let dx = -span; dx <= span; dx++) {
         const d = Math.hypot(dx, dz);
         if (d <= load) this._offsets.push({ dx, dz, d });
       }
@@ -153,10 +164,12 @@ export class World {
     const chunk = this.getChunk(cx, cz);
     if (!chunk || !chunk.set(lx, y, lz, id)) return false;
 
-    if (lx === 0) this.markDirty(cx - 1, cz);
-    if (lx === CHUNK_SIZE - 1) this.markDirty(cx + 1, cz);
-    if (lz === 0) this.markDirty(cx, cz - 1);
-    if (lz === CHUNK_SIZE - 1) this.markDirty(cx, cz + 1);
+    // Vecinos que tocan el bloque (sus caras y la oclusión de sus esquinas).
+    const sx = lx === 0 ? -1 : lx === CHUNK_SIZE - 1 ? 1 : 0;
+    const sz = lz === 0 ? -1 : lz === CHUNK_SIZE - 1 ? 1 : 0;
+    if (sx) this.markDirty(cx + sx, cz);
+    if (sz) this.markDirty(cx, cz + sz);
+    if (sx && sz) this.markDirty(cx + sx, cz + sz);
     return true;
   }
 
@@ -187,6 +200,7 @@ export class World {
     const cx = toChunkCoord(x);
     const cz = toChunkCoord(z);
     const loaded = this.getChunk(cx, cz);
+    const prev = loaded ? this.getBlock(x, y, z) : null;
     if (loaded && !this.setBlock(x, y, z, id)) return false;
     if (!loaded && source === 'local') return false; // el jugador no edita lo que no ve
 
@@ -201,12 +215,12 @@ export class World {
 
     // Rearmar ya mismo lo afectado (el chunk y sus vecinos marcados).
     if (loaded) {
-      for (const [dx, dz] of [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      for (const [dx, dz] of NEIGHBORHOOD) {
         const chunk = this.getChunk(cx + dx, cz + dz);
         if (chunk?.dirty && chunk.mesh && this._neighborsReady(chunk.cx, chunk.cz)) this.rebuildChunk(chunk);
       }
     }
-    for (const listener of this.editListeners) listener({ x, y, z, id, source });
+    for (const listener of this.editListeners) listener({ x, y, z, id, prev, source });
     return true;
   }
 
@@ -309,22 +323,25 @@ export class World {
 
   /** ¿Están cargados los 4 vecinos? (hace falta para mallar los bordes) */
   _neighborsReady(cx, cz) {
-    return (
-      this.chunks.has(chunkKey(cx - 1, cz)) &&
-      this.chunks.has(chunkKey(cx + 1, cz)) &&
-      this.chunks.has(chunkKey(cx, cz - 1)) &&
-      this.chunks.has(chunkKey(cx, cz + 1))
-    );
+    for (const [dx, dz] of NEIGHBORHOOD) {
+      if (!this.chunks.has(chunkKey(cx + dx, cz + dz))) return false;
+    }
+    return true;
   }
 
   /** Rearma la malla de un chunk (reemplaza y libera la anterior). */
   rebuildChunk(chunk) {
     const { cx, cz } = chunk;
+    const data = (dx, dz) => this.getChunk(cx + dx, cz + dz)?.data;
     const neighbors = {
-      nx: this.getChunk(cx - 1, cz)?.data,
-      px: this.getChunk(cx + 1, cz)?.data,
-      nz: this.getChunk(cx, cz - 1)?.data,
-      pz: this.getChunk(cx, cz + 1)?.data,
+      nx: data(-1, 0),
+      px: data(1, 0),
+      nz: data(0, -1),
+      pz: data(0, 1),
+      nxnz: data(-1, -1),
+      pxnz: data(1, -1),
+      nxpz: data(-1, 1),
+      pxpz: data(1, 1),
     };
     const d = buildChunkMesh(chunk.data, neighbors, chunk.maxY);
     this.disposeChunkMesh(chunk);

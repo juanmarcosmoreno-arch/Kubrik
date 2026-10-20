@@ -45,6 +45,7 @@
             <li><kbd>Clic der.</kbd> poner</li>
             <li><kbd>1</kbd>–<kbd>9</kbd> / rueda: bloque</li>
             <li><kbd>V</kbd> cámara</li>
+            <li><kbd>F3</kbd> coordenadas</li>
             <li><kbd>Esc</kbd> pausa</li>
           </ul>
         </div>
@@ -84,6 +85,34 @@
         <p id="worlds-msg" class="msg" role="status"></p>
         <div class="dialog-actions">
           <button id="worlds-back" class="btn btn-ghost" type="button">Volver</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Opciones (sobre la pausa) -->
+    <div id="options-panel" class="screen overlay" hidden role="dialog" aria-labelledby="opt-title" aria-modal="true">
+      <div class="panel dialog dialog-narrow">
+        <h2 id="opt-title">Opciones</h2>
+        <label class="field range-field">
+          <span>Distancia de render <output id="opt-renderDistance-value"></output></span>
+          <input id="opt-renderDistance" type="range" />
+        </label>
+        <label class="field range-field">
+          <span>Sensibilidad del mouse <output id="opt-sensitivity-value"></output></span>
+          <input id="opt-sensitivity" type="range" />
+        </label>
+        <label class="field range-field">
+          <span>Campo de visión <output id="opt-fov-value"></output></span>
+          <input id="opt-fov" type="range" />
+        </label>
+        <label class="field range-field">
+          <span>Volumen <output id="opt-volume-value"></output></span>
+          <input id="opt-volume" type="range" />
+        </label>
+        <p class="hint">Más distancia muestra más mundo, pero le pide más a la computadora.</p>
+        <div class="dialog-actions">
+          <button id="opt-done" class="btn btn-primary" type="button">Listo</button>
+          <button id="opt-reset" class="btn btn-ghost" type="button">Valores de fábrica</button>
         </div>
       </div>
     </div>
@@ -128,7 +157,10 @@
       <div class="panel">
         <h2>Pausa</h2>
         <button id="btn-resume" class="btn btn-primary" type="button">Continuar</button>
-        <button id="btn-pause-mp" class="btn btn-secondary" type="button">Multijugador</button>
+        <div class="pause-row">
+          <button id="btn-options" class="btn btn-secondary btn-medium" type="button">Opciones</button>
+          <button id="btn-pause-mp" class="btn btn-secondary btn-medium" type="button">Multijugador</button>
+        </div>
         <button id="btn-save-exit" class="btn btn-ghost" type="button">Guardar y salir</button>
         <div id="mp-pause" class="mp-pause" hidden>
           <span>Partida <strong id="mp-pause-code"></strong> · <span id="mp-pause-count"></span></span>
