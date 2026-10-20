@@ -637,6 +637,11 @@ class Game {
     // El mundo se genera alrededor del jugador en todos los estados (así,
     // mientras se ve la pantalla de inicio, ya se va cargando).
     this.world.update(this.player.position.x, this.player.position.z);
+    // La hora corre mientras se juega. Con una partida corre siempre y con el
+    // reloj real (también en el inicio y al volver de una pestaña oculta),
+    // para que todos tengan la misma hora.
+    if (this.multiplayer.active) this.sky.advance(realDt);
+    else if (this.state === STATE.PLAYING) this.sky.advance(dt);
     this.multiplayer.update(dt);
 
     if (this.state === STATE.TITLE) {
@@ -673,10 +678,9 @@ class Game {
       // Con la cámara bajo el agua todo se ve azul y cerca (en cualquier vista).
       const cam = this.camera.position;
       this.sky.setUnderwater(this.world.isWaterAt(cam.x, cam.y, cam.z));
-      // La hora corre mientras se juega (y en pausa si hay partida, para
-      // que todos sigan con la misma hora).
-      const timeRuns = this.state === STATE.PLAYING || this.multiplayer.active;
-      this.sky.update(timeRuns ? dt : 0, this.camera, this.renderer.getPixelRatio());
+      this.sky.update(this.camera, this.renderer.getPixelRatio());
+      // De noche el contorno del bloque apuntado se aclara (si no, no se ve).
+      this.outline.setDaylight(this.sky.daylight);
       if (this.hud.debugVisible) this.updateDebug();
       this.renderer.render(this.scene, this.camera);
     }

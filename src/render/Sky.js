@@ -7,6 +7,7 @@
 // que lo lejano se funda con el cielo.
 
 import * as THREE from 'three';
+import { SKY_COLOR_GLSL, skyUniforms } from './skyUniforms.js';
 
 /** Duración de un día completo (segundos). */
 export const DAY_LENGTH = 600;
@@ -36,6 +37,11 @@ const smoothstep = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
+
+const SUN_LOW = new THREE.Color(0xffc58a);
+const SUN_HIGH = new THREE.Color(0xfff3dc);
+const AMBIENT_NIGHT = new THREE.Color(0x8796c8);
+const AMBIENT_DAY = new THREE.Color(0xffffff);
 
 /** Textura de pixel art dibujada en un canvas chico (se ve pixelada a propósito). */
 function pixelTexture(size, draw) {
@@ -127,10 +133,11 @@ export class Sky {
     this.time = START_TIME;
     /** Altura del sol: seno de su ángulo sobre el horizonte (-1 a 1). */
     this.sunElevation = 0;
-    this.sunDirection = new THREE.Vector3();
-    this.horizonColor = new THREE.Color();
-    this.topColor = new THREE.Color();
-    this.glowColor = new THREE.Color();
+    // Colores y dirección del sol compartidos con la niebla de los bloques.
+    this.sunDirection = skyUniforms.skySunDir.value;
+    this.horizonColor = skyUniforms.skyHorizon.value;
+    this.topColor = skyUniforms.skyTop.value;
+    this.glowColor = skyUniforms.skyGlow.value;
     this.fogColor = new THREE.Color();
     scene.background = this.fogColor;
 
@@ -152,10 +159,10 @@ export class Sky {
       new THREE.SphereGeometry(1, 32, 16),
       new THREE.ShaderMaterial({
         uniforms: {
-          topColor: { value: this.topColor },
-          horizonColor: { value: this.horizonColor },
-          glowColor: { value: this.glowColor },
-          sunDir: { value: this.sunDirection },
+          skyTop: skyUniforms.skyTop,
+          skyHorizon: skyUniforms.skyHorizon,
+          skyGlow: skyUniforms.skyGlow,
+          skySunDir: skyUniforms.skySunDir,
         },
         vertexShader: /* glsl */ `
           varying vec3 vDir;
@@ -164,18 +171,10 @@ export class Sky {
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           }`,
         fragmentShader: /* glsl */ `
-          uniform vec3 topColor;
-          uniform vec3 horizonColor;
-          uniform vec3 glowColor;
-          uniform vec3 sunDir;
+          ${SKY_COLOR_GLSL}
           varying vec3 vDir;
           void main() {
-            vec3 d = normalize(vDir);
-            vec3 color = mix(horizonColor, topColor, smoothstep(0.0, 0.6, d.y));
-            // Resplandor alrededor del sol (fuerte al amanecer y al atardecer).
-            float s = max(dot(d, sunDir), 0.0);
-            color += glowColor * (pow(s, 6.0) * 0.35 + pow(s, 40.0) * 0.35) * smoothstep(-0.35, 0.05, d.y);
-            gl_FragColor = vec4(color, 1.0);
+            gl_FragColor = vec4(skyColorAt(normalize(vDir)), 1.0);
             #include <colorspace_fragment>
           }`,
         side: THREE.BackSide,
@@ -210,14 +209,19 @@ export class Sky {
       vertexShader: /* glsl */ `
         attribute float size;
         uniform float pixelRatio;
+        varying float vHeight;
         void main() {
+          // Altura de la estrella en el cielo (para apagar las de abajo del horizonte).
+          vHeight = normalize((modelMatrix * vec4(position, 0.0)).xyz).y;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           gl_PointSize = size * pixelRatio;
         }`,
       fragmentShader: /* glsl */ `
         uniform float opacity;
+        varying float vHeight;
         void main() {
-          gl_FragColor = vec4(vec3(1.0, 0.97, 0.9) * opacity, 1.0);
+          float visible = opacity * smoothstep(-0.03, 0.06, vHeight);
+          gl_FragColor = vec4(vec3(1.0, 0.97, 0.9) * visible, 1.0);
           #include <colorspace_fragment>
         }`,
       transparent: true,
@@ -249,6 +253,11 @@ export class Sky {
   setTime(time) {
     this.time = ((Number(time) % 1) + 1) % 1 || 0;
     this._apply();
+  }
+
+  /** Avanza la hora `seconds` segundos de juego (un día dura DAY_LENGTH). */
+  advance(seconds) {
+    if (seconds > 0) this.setTime(this.time + seconds / DAY_LENGTH);
   }
 
   /** Hora en formato reloj ("14:35"). */
@@ -303,10 +312,10 @@ export class Sky {
     const day = smoothstep(-0.18, 0.22, e);
     this.daylight = day;
     this.sun.intensity = 1.9 * smoothstep(-0.04, 0.2, e);
-    this.sun.color.setHex(0xffc58a).lerp(new THREE.Color(0xfff3dc), smoothstep(0.05, 0.35, e));
+    this.sun.color.lerpColors(SUN_LOW, SUN_HIGH, smoothstep(0.05, 0.35, e));
     this.moon.intensity = 0.45 * smoothstep(0.02, -0.2, e);
     this.ambient.intensity = 0.42 + 0.93 * day;
-    this.ambient.color.setHex(0x8796c8).lerp(new THREE.Color(0xffffff), day);
+    this.ambient.color.lerpColors(AMBIENT_NIGHT, AMBIENT_DAY, day);
     // El reflejo del ambiente en el personaje también baja de noche.
     this.scene.environmentIntensity = 0.12 + 0.43 * day;
 
@@ -318,6 +327,7 @@ export class Sky {
   }
 
   _applyFog() {
+    skyUniforms.skyFog.value = this.underwater ? 0 : 1;
     if (this.underwater) {
       this.fogColor.copy(UNDERWATER_COLOR).multiplyScalar(0.25 + 0.75 * (this.daylight ?? 1));
       this.fog.near = 1;
@@ -331,16 +341,11 @@ export class Sky {
   }
 
   /**
-   * Avanza la hora y acomoda el cielo alrededor de la cámara.
-   * @param {number} dt segundos de juego (0 si el tiempo no corre)
+   * Acomoda el cielo alrededor de la cámara (la hora avanza con advance).
    * @param {THREE.PerspectiveCamera} camera
    * @param {number} pixelRatio densidad de píxeles (tamaño de las estrellas)
    */
-  update(dt, camera, pixelRatio = 1) {
-    if (dt > 0) {
-      this.time = (this.time + dt / DAY_LENGTH) % 1;
-      this._apply();
-    }
+  update(camera, pixelRatio = 1) {
     const center = camera.getWorldPosition(this._center ?? (this._center = new THREE.Vector3()));
     // Las luces siguen al jugador (apuntan siempre a la zona visible).
     this.sun.position.copy(center).addScaledVector(this.sunDirection, 100);
@@ -367,7 +372,12 @@ export class Sky {
     place(this.sunGlow, this.sunDirection, 0.5);
     place(this.moonDisc, moonDir, 0.085);
     place(this.moonGlow, moonDir, 0.3);
-    this.sunGlow.material.opacity = 0.9 * smoothstep(-0.15, 0.05, this.sunElevation);
-    this.moonGlow.material.opacity = 0.35 * smoothstep(0.1, -0.1, this.sunElevation);
+    // Debajo del horizonte no se ven (aunque no haya terreno delante, por
+    // ejemplo mirando desde una montaña hacia el borde del área cargada).
+    const e = this.sunElevation;
+    this.sunDisc.material.opacity = smoothstep(-0.12, -0.02, e);
+    this.moonDisc.material.opacity = smoothstep(-0.12, -0.02, -e);
+    this.sunGlow.material.opacity = 0.9 * smoothstep(-0.1, 0.04, e);
+    this.moonGlow.material.opacity = 0.35 * smoothstep(-0.1, 0.04, -e) * smoothstep(0.1, -0.1, e);
   }
 }

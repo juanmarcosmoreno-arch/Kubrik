@@ -129,13 +129,14 @@ export class Controls {
   // --- Manejadores de eventos ---------------------------------------------
 
   _onKeyDown(e) {
+    // F3 (datos del mundo) abre la búsqueda en algunos navegadores, también en la pausa.
+    if (e.code === 'F3') e.preventDefault();
     if (!this.locked) return;
     // Evitar que Espacio o las flechas desplacen la página mientras se juega,
     // y que Ctrl (correr) + una tecla dispare atajos del navegador (Ctrl+D
     // marcadores, Ctrl+S guardar, etc.). Ctrl+W no se puede bloquear: el
     // juego pide confirmación antes de cerrar (ver main.js).
-    // F3 (datos del mundo) abre la búsqueda en algunos navegadores.
-    if (e.code === 'Space' || e.code.startsWith('Arrow') || e.ctrlKey || e.code === 'F3') e.preventDefault();
+    if (e.code === 'Space' || e.code.startsWith('Arrow') || e.ctrlKey) e.preventDefault();
     if (!e.repeat) this.justPressed.add(e.code);
     this.keys.add(e.code);
   }

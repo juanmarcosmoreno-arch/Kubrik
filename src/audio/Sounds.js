@@ -159,7 +159,9 @@ export class Footsteps {
     const water = world.getBlock(Math.floor(p.x), Math.floor(p.y + 0.4), Math.floor(p.z));
     const fall = -this._lastVy;
     if (player.inWater && !this._wasInWater && fall > 3) {
-      this.sounds.play('splash', water, Math.min(1, fall / 12));
+      // El agua que tocaron los pies (más arriba puede seguir siendo aire).
+      const feet = world.getBlock(Math.floor(p.x), Math.floor(p.y + 0.1), Math.floor(p.z));
+      this.sounds.play('splash', feet, Math.min(1, fall / 12));
     } else if (player.onGround && !this._wasOnGround && fall > LAND_SPEED) {
       this.sounds.play('land', below, Math.min(1, fall / 16));
       this._distance = 0;

@@ -86,9 +86,12 @@ export class OptionsMenu {
 
   _set(key, value) {
     const v = clean(key, value);
+    // Se guarda solo lo que cambió (por ejemplo, una ?distancia= de la
+    // dirección vale para esta vez y no queda guardada).
+    const saved = loadOptions();
+    if (saved[key] !== v) savePreference('options', { ...saved, [key]: v });
     if (this.options[key] === v) return;
     this.options[key] = v;
-    savePreference('options', this.options);
     this.onChange(key, v);
   }
 

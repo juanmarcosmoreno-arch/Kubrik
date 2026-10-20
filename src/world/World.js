@@ -430,7 +430,9 @@ export class World {
   _unloadFar() {
     const { cx, cz } = this._center;
     const meshLimit = this.renderDistance + 1.5;
-    const dataLimit = this.renderDistance + 2.5;
+    // Los datos duran más que las mallas (+ √2): un chunk con malla siempre
+    // tiene cargados sus 8 vecinos (de ellos depende la oclusión de sus bordes).
+    const dataLimit = this.renderDistance + 3;
     for (const chunk of [...this.chunks.values()]) {
       const d = Math.hypot(chunk.cx - cx, chunk.cz - cz);
       if (d > dataLimit) {

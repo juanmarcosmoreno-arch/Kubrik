@@ -2,6 +2,9 @@
 
 import * as THREE from 'three';
 
+const DARK = new THREE.Color(0x101010);
+const LIGHT = new THREE.Color(0xd8e0f0);
+
 export class BlockOutline {
   constructor(scene) {
     // Un poco más grande que el bloque, para que no se pise con sus caras.
@@ -23,6 +26,15 @@ export class BlockOutline {
     this.mesh.visible = false;
     this.mesh.renderOrder = 2; // después del agua
     scene.add(this.mesh);
+  }
+
+  /**
+   * Color según la luz del día (0 noche, 1 día): oscuro de día y claro de
+   * noche, con un cambio rápido al atardecer para que nunca se pierda.
+   */
+  setDaylight(daylight) {
+    const k = THREE.MathUtils.smoothstep(daylight, 0.35, 0.65);
+    this.mesh.material.color.lerpColors(LIGHT, DARK, k);
   }
 
   /** Muestra el contorno en el bloque (x, y, z), o lo oculta con null. */

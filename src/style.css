@@ -635,6 +635,12 @@ kbd {
   accent-color: var(--lime);
 }
 
+.range-field input[type='range']:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
 .pause-row {
   display: flex;
   gap: 10px;
