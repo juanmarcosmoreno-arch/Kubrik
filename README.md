@@ -166,11 +166,11 @@ La meta es 60 cuadros por segundo a distancia 8 en una PC o Mac común.
 
 ## Personaje
 
-El protagonista de Megabrick es un personaje con estilo de juguete: formas redondeadas y acabado plástico. Lleva gorra con la "M", buzo con capucha y panel blanco con el logo, mochila negra, pantalón cargo y zapatillas. Contrasta con el mundo de bloques pixel art. Se arma por código: la cara, la gorra y los logos se dibujan en canvas, sin imágenes externas.
+El protagonista de Megabrick es **Coco**, un monstruito de gomita: una bola brillante que es cabeza y cuerpo a la vez, violeta adelante y naranja y amarilla en la espalda, llena de bultitos y gotitas amarillas. Tiene ojos saltones con párpados pesados (cara de aburrido), una boca ancha con colmillos, antena en rulo, brazos finitos con pinzas y patas flacas con pies grandes de tres garras. Contrasta con el mundo de bloques pixel art. Se arma por código: geometrías y texturas se generan en el momento, sin imágenes externas.
 
-- **Colores:** verde, azul, rojo, amarillo, violeta y negro. Se elige en la pantalla de inicio y queda guardado en el navegador.
-- **Expresiones:** normal, feliz, sorprendido, determinado y divertido, más un parpadeo automático. En la pantalla de inicio las va mostrando una por una. En el juego se pone feliz cuando sube volando y pone cara de decidido mientras rompe bloques.
-- **Animación:** camina moviendo brazos y piernas, la cabeza sigue la mirada y el cuerpo gira con suavidad.
+- **Colores:** violeta (el Coco original), verde, azul, rojo, amarillo y negro. El color cambia el violeta del cuerpo; el degradé cálido y las manchas se ajustan para que se vean en todos. Se elige en la pantalla de inicio y queda guardado en el navegador. En la espalda tiene manchones de su color, así se lo reconoce desde atrás en el multijugador.
+- **Expresiones:** normal (aburrido), feliz (sonrisa enorme y un bailecito), sorprendido (abre los brazos) y determinado (ceño fruncido y colmillos), más parpadeo, mirada que se mueve y algún suspiro. En la pantalla de inicio las va mostrando una por una. En el juego se pone feliz cuando sube volando y pone cara de decidido mientras rompe bloques.
+- **Animación:** respira, la antena se mece como un resorte, camina y corre con los pies grandes (la bola rebota y se aplasta al pisar), vuela con los brazos abiertos y, al romper o poner, pica con la pinza derecha, donde lleva el bloque elegido. De noche baja el brillo propio.
 - **Cámara:** en primera persona no se ve. Con **V** pasa a tercera persona, desde atrás o de frente, y la cámara se acerca sola si atrás hay una pared.
 
 ## Estructura del código
@@ -197,7 +197,9 @@ src/
     Controls.js         → teclado, botones y rueda del mouse, pointer lock
     Raycast.js          → bloque apuntado con DDA
     Interaction.js      → romper y poner bloques
-    Avatar.js           → modelo del personaje (piezas redondeadas), animación y expresiones
+    Avatar.js           → el personaje en el juego: gira con la mirada, lleva el bloque en la pinza
+    coco.js             → Coco: modelo, texturas, animación y expresiones, todo por código
+    colors.js           → los 6 colores del personaje y sus expresiones
     RemotePlayer.js     → otro jugador: su personaje, su nombre y movimiento suavizado
     ViewCamera.js       → cámara en primera y tercera persona (tecla V)
   render/
@@ -205,7 +207,6 @@ src/
     textures.js         → dibujo procedural del atlas (pixel art 16×16)
     materials.js        → materiales por capa: opaca, recortada (hojas/vidrio) y translúcida (agua)
     Sky.js              → día y noche: cielo en degradé, sol, luna, estrellas, luces y niebla
-    avatarTextures.js   → cara, gorra y logos del personaje dibujados en canvas (6 colores, 5 expresiones)
     CharacterPreview.js → personaje girando en la pantalla de inicio
     BlockOutline.js     → contorno del bloque apuntado
     HeldItem.js         → bloque en la mano en primera persona

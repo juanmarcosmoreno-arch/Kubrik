@@ -73,7 +73,7 @@ export class RemotePlayer {
     this.avatar = new Avatar(color);
     this.avatar.root.visible = false; // hasta recibir la primera posición
     this.tag = nameTag(name);
-    this.tag.position.y = 2.15;
+    this.tag.position.y = 1.95; // sobre la antena de Coco
     this.avatar.root.add(this.tag);
     scene.add(this.avatar.root);
 

@@ -6,8 +6,11 @@ import * as THREE from 'three';
 import { Avatar } from '../player/Avatar.js';
 
 /** Expresiones que muestra la vitrina, en orden. */
-const SHOWCASE = ['normal', 'feliz', 'sorprendido', 'determinado', 'divertido'];
-const EXPRESSION_SECONDS = 2.2;
+const SHOWCASE = ['normal', 'feliz', 'sorprendido', 'determinado'];
+const EXPRESSION_SECONDS = 2.6;
+/** Altura de la cámara y del punto al que mira (Coco mide ~1,65 con la antena). */
+const CAMERA_Y = 1.0;
+const LOOK_Y = 0.8;
 
 /** Sombra suave bajo los pies (un degradé radial en un plano). */
 function shadowMesh() {
@@ -36,14 +39,15 @@ export class CharacterPreview {
   constructor(variant) {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, 0.6, 0.1, 50);
-    this.camera.position.set(0, 1.15, 4.6);
-    this.camera.lookAt(0, 0.92, 0);
+    this.camera.position.set(0, CAMERA_Y, 4.6);
+    this.camera.lookAt(0, LOOK_Y, 0);
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.55));
     const key = new THREE.DirectionalLight(0xfff2de, 2.0);
     key.position.set(2, 3, 4);
     this.scene.add(key);
-    const rim = new THREE.DirectionalLight(0xb9ff8a, 0.9); // contraluz verdoso, como el logo
+    // Contraluz cálido: el brillo dorado alrededor de Coco.
+    const rim = new THREE.DirectionalLight(0xffc27a, 1.1);
     rim.position.set(-3, 2, -3);
     this.scene.add(rim);
 
@@ -67,7 +71,7 @@ export class CharacterPreview {
     // (yaw = PI: el personaje, que mira hacia -Z, queda de frente a la cámara.)
     const yaw = Math.PI + Math.sin(this.time * 0.6) * 0.75;
     this.avatar.bodyYaw = yaw;
-    this.avatar.update(dt, { yaw, pitch: Math.sin(this.time * 0.9) * 0.08, speed: 0 });
+    this.avatar.update(dt, { yaw, speed: 0 });
 
     this._expressionTimer -= dt;
     if (this._expressionTimer <= 0) {
@@ -92,11 +96,11 @@ export class CharacterPreview {
     this.camera.aspect = rect.width / rect.height;
     // Si el recuadro es angosto, alejar la cámara para que entre entero.
     const dist = Math.max(4.6, 2.6 / this.camera.aspect);
-    this.camera.position.set(0, 1.15, dist);
-    this.camera.lookAt(0, 0.92, 0);
+    this.camera.position.set(0, CAMERA_Y, dist);
+    this.camera.lookAt(0, LOOK_Y, 0);
     this.camera.updateProjectionMatrix();
-    // Mapeo de tonos suave solo para la vitrina, así los blancos y la piel
-    // no se "queman" con la luz fuerte del estudio.
+    // Mapeo de tonos suave solo para la vitrina, así los brillos y el
+    // amarillo no se "queman" con la luz fuerte del estudio.
     const toneMapping = renderer.toneMapping;
     renderer.toneMapping = THREE.NeutralToneMapping;
     renderer.render(this.scene, this.camera);

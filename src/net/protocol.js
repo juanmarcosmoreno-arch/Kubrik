@@ -6,7 +6,7 @@
 
 import { BLOCK, BLOCKS } from '../world/blocks.js';
 import { CHUNK_HEIGHT } from '../world/Chunk.js';
-import { EXPRESSIONS, isVariant } from '../render/avatarTextures.js';
+import { DEFAULT_VARIANT, EXPRESSIONS, isVariant } from '../player/colors.js';
 
 /** Versión del protocolo: invitado y anfitrión tienen que coincidir. */
 export const PROTOCOL_VERSION = 2;
@@ -135,6 +135,6 @@ export function cleanPlayerInfo(m) {
   return {
     id: m.id,
     name: sanitizeName(m.name),
-    color: isVariant(m.color) ? m.color : 'verde',
+    color: isVariant(m.color) ? m.color : DEFAULT_VARIANT,
   };
 }

@@ -14,7 +14,7 @@ import { Controls } from './player/Controls.js';
 import { Avatar } from './player/Avatar.js';
 import { VIEW, ViewCamera } from './player/ViewCamera.js';
 import { CharacterPreview } from './render/CharacterPreview.js';
-import { DEFAULT_VARIANT, VARIANTS, isVariant } from './render/avatarTextures.js';
+import { DEFAULT_VARIANT, VARIANTS, isVariant } from './player/colors.js';
 import { loadPreference, savePreference } from './save/Preferences.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Hud } from './ui/Hud.js';

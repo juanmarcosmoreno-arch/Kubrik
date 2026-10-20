@@ -3,7 +3,7 @@
 // jugadores en el HUD y datos de la partida en el menú de pausa.
 
 import { formatCode, parseCode, sanitizeName } from '../net/protocol.js';
-import { VARIANTS } from '../render/avatarTextures.js';
+import { VARIANTS } from '../player/colors.js';
 import { loadPreference, savePreference } from '../save/Preferences.js';
 
 /** Copia un texto al portapapeles (con alternativa si no hay permiso). */
