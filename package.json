@@ -9,15 +9,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/juanmarcosmoreno-arch/Kubrik.git"
+    "url": "git+https://github.com/juanmarcosmoreno-arch/MegaBrick.git"
   },
   "keywords": [],
   "author": "",
   "license": "UNLICENSED",
   "bugs": {
-    "url": "https://github.com/juanmarcosmoreno-arch/Kubrik/issues"
+    "url": "https://github.com/juanmarcosmoreno-arch/MegaBrick/issues"
   },
-  "homepage": "https://github.com/juanmarcosmoreno-arch/Kubrik#readme",
+  "homepage": "https://github.com/juanmarcosmoreno-arch/MegaBrick#readme",
   "dependencies": {
     "peerjs": "^1.5.5",
     "simplex-noise": "^4.0.3",

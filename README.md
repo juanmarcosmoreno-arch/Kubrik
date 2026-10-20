@@ -9,7 +9,7 @@
 
 **Megabrick** es un juego sandbox de bloques en primera persona que corre en el navegador. Recorrés un mundo hecho de cubos, lo explorás y construís bloque a bloque. Todo es original: el nombre, el diseño y las texturas, que se generan por código en pixel art de 16×16.
 
-🎮 **Versión jugable:** https://juanmarcosmoreno-arch.github.io/Kubrik/
+🎮 **Versión jugable:** https://juanmarcosmoreno-arch.github.io/MegaBrick/
 
 > Megabrick se juega en **PC o Mac con teclado y mouse**. Por ahora no está pensado para celulares ni tablets.
 
@@ -36,8 +36,8 @@ El juego se construye por etapas. Siempre queda una versión jugable.
 ## Instalación
 
 ```bash
-git clone https://github.com/juanmarcosmoreno-arch/Kubrik.git
-cd Kubrik
+git clone https://github.com/juanmarcosmoreno-arch/MegaBrick.git
+cd MegaBrick
 npm install
 ```
 
@@ -240,6 +240,11 @@ Para agregar un bloque se suma una fila en `src/world/blocks.js` y, si necesita 
 
 ## Publicación en GitHub Pages
 
-El workflow `.github/workflows/deploy.yml` arma el build y lo publica en GitHub Pages con cada push a `main`. Hay que activarlo una sola vez: en el repositorio, **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+El workflow `.github/workflows/deploy.yml` arma el build y lo publica en GitHub Pages con cada push a `main`. Se configura una sola vez, en el repositorio:
 
-La ruta base del build se toma del nombre del repositorio, porque GitHub Pages distingue mayúsculas en la ruta. Si el repositorio se renombra, por ejemplo a `megabrick`, el build se adapta solo y la versión jugable pasa a estar en `https://juanmarcosmoreno-arch.github.io/megabrick/`.
+- **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+- **Settings → General → Default branch: `main`**. El entorno `github-pages` que crea GitHub solo deja publicar desde la rama por defecto (se puede cambiar en **Settings → Environments → github-pages**).
+
+También se puede publicar a mano desde **Actions → Deploy a GitHub Pages → Run workflow**.
+
+La ruta base del build se toma del nombre del repositorio, porque GitHub Pages distingue mayúsculas en la ruta. Con el repositorio `MegaBrick`, la versión jugable está en `https://juanmarcosmoreno-arch.github.io/MegaBrick/`; si se renombra, el build se adapta solo.
