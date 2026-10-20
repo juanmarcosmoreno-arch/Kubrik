@@ -143,6 +143,15 @@ export class MultiplayerMenu {
       this.codeInput.focus();
       return;
     }
+    // Al unirse se juega en el mundo de quien creó la partida: lo construido
+    // en el mundo actual se pierde (todavía no hay guardado).
+    const world = this.mp.game.world;
+    if (
+      world.edits.size > 0 &&
+      !window.confirm('Vas a jugar en el mundo de quien creó la partida y lo que construiste en este mundo se pierde. ¿Seguir?')
+    ) {
+      return;
+    }
     const name = this._name();
     try {
       const done = this.mp.join(code, name);

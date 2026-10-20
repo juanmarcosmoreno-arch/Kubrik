@@ -412,7 +412,11 @@ export class Multiplayer {
     const info = cleanPlayerInfo({ id: `j${++this._nextGuest}`, name: msg.name, color: msg.color });
     this._byPeer.set(from, info.id);
     const g = this.game;
-    const others = [...this.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color }));
+    // Los demás, con su posición (para que el nuevo no aparezca encima de nadie).
+    const others = [...this.players.values()].map((p) => {
+      const s = p.lastState;
+      return { id: p.id, name: p.name, color: p.color, ...(s && { x: s.x, y: s.y, z: s.z }) };
+    });
     this.session.send(from, {
       t: MSG.WELCOME,
       v: PROTOCOL_VERSION,
@@ -495,38 +499,39 @@ export class Multiplayer {
     }
     // El mundo del anfitrión: misma semilla y sus cambios.
     const hostPos = cleanPosition(msg.spawn);
+    const others = Array.isArray(msg.players) ? msg.players.slice(0, MAX_PLAYERS - 2) : [];
     this.game.loadWorld({
       seed: msg.seed >>> 0,
       seedText: typeof msg.seedText === 'string' ? msg.seedText.slice(0, 64) : String(msg.seed),
       edits: msg.edits,
       spawn: hostPos,
     });
-    if (hostPos) this._placeBeside(hostPos);
+    if (hostPos) this._placeBeside(hostPos, others.map(cleanPosition).filter(Boolean));
     this.role = 'guest';
     this.code = this._joinCode;
     this.attachWorld(this.game.world);
     const host = cleanPlayerInfo(msg.host);
     if (host) this._addPlayer(host);
-    if (Array.isArray(msg.players)) {
-      // Como mucho, los que entran en una partida (sin contar al anfitrión ni a uno mismo).
-      for (const p of msg.players.slice(0, MAX_PLAYERS - 2)) {
-        const info = cleanPlayerInfo(p);
-        if (info) this._addPlayer(info);
-      }
+    // Como mucho, los que entran en una partida (sin contar al anfitrión ni a uno mismo).
+    for (const p of others) {
+      const info = cleanPlayerInfo(p);
+      if (info) this._addPlayer(info);
     }
     pending.resolve();
   }
 
   /**
    * Pone al jugador en un lugar libre al lado del anfitrión (si no, los dos
-   * aparecerían uno adentro del otro), mirándolo.
+   * aparecerían uno adentro del otro), mirándolo. `taken`: dónde están los
+   * demás jugadores, para no aparecer encima de ellos tampoco.
    */
-  _placeBeside(host) {
+  _placeBeside(host, taken = []) {
     const world = this.game.world;
     const bx = Math.floor(host.x);
     const by = Math.floor(host.y);
     const bz = Math.floor(host.z);
-    const free = (x, z) => !world.isSolid(x, by, z) && !world.isSolid(x, by + 1, z);
+    const used = (x, z) => taken.some((p) => Math.hypot(p.x - x - 0.5, p.z - z - 0.5) < 1 && Math.abs(p.y - by) < 2);
+    const free = (x, z) => !world.isSolid(x, by, z) && !world.isSolid(x, by + 1, z) && !used(x, z);
     let spot = null;
     for (const [dx, dz] of SPAWN_OFFSETS) {
       if (!free(bx + dx, bz + dz)) continue;

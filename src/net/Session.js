@@ -26,6 +26,9 @@ const DISCONNECT_GRACE = 3000;
 /** Conexiones simultáneas que acepta el anfitrión (jugadores y las que recién llegan). */
 const MAX_CONNECTIONS = MAX_PLAYERS + 2;
 
+/** Espera máxima (ms) para reconectarse al servidor si se cortó (va creciendo). */
+const MAX_RETRY_DELAY = 30000;
+
 /**
  * Servidor de PeerJS. Por defecto el servidor público y gratuito de PeerJS;
  * se puede usar otro con ?servidor=host:puerto en la URL (por ejemplo, uno
@@ -100,6 +103,7 @@ export class Session {
     this.onDisconnect = null;
     /** (error) => void: errores después de conectarse. */
     this.onError = null;
+    this._retryTimer = 0;
   }
 
   /** ID propio en la red. */
@@ -124,13 +128,24 @@ export class Session {
         return;
       }
       pending.add(conn);
-      const forget = () => pending.delete(conn);
+      // Si no termina de abrirse (el otro canceló, cerró la pestaña o se le
+      // cortó la red), PeerJS no siempre avisa: se le pone un plazo para que
+      // no quede ocupando un lugar.
+      const deadline = setTimeout(() => {
+        if (pending.delete(conn)) conn.close();
+      }, CONNECT_TIMEOUT + 5000);
+      const forget = () => {
+        clearTimeout(deadline);
+        pending.delete(conn);
+      };
       conn.on('close', forget);
       conn.on('error', forget);
       conn.on('open', () => {
         forget();
-        if (this.connections.has(conn.peer)) {
-          conn.close();
+        const existing = this.connections.get(conn.peer);
+        if (existing === conn) return; // a veces PeerJS avisa 'open' dos veces
+        if (existing) {
+          conn.close(); // ya hay otra conexión desde esa computadora
           return;
         }
         this.connections.set(conn.peer, conn);
@@ -140,21 +155,33 @@ export class Session {
     });
     this.peer.on('error', (err) => this.onError?.(err));
     // Si se corta el contacto con el servidor, las conexiones abiertas siguen;
-    // se reintenta para que se puedan sumar más jugadores.
+    // se reintenta (cada vez esperando más) para que se puedan sumar más
+    // jugadores.
+    let delay = 1000;
+    this.peer.on('open', () => {
+      delay = 1000;
+    });
     this.peer.on('disconnected', () => {
-      if (this.peer && !this.peer.destroyed) this.peer.reconnect();
+      clearTimeout(this._retryTimer);
+      this._retryTimer = setTimeout(() => {
+        if (this.peer?.disconnected && !this.peer.destroyed) this.peer.reconnect();
+      }, delay);
+      delay = Math.min(delay * 2, MAX_RETRY_DELAY);
     });
   }
 
   /** Se une a la partida con el código dado (invitado). */
   async join(code) {
     this.role = 'guest';
-    this.peer = new Peer({ debug: 0, ...serverOptions() });
-    await waitFor(this.peer, 'open');
+    const peer = new Peer({ debug: 0, ...serverOptions() });
+    this.peer = peer;
+    await waitFor(peer, 'open');
+    if (this.peer !== peer) throw { type: 'closed' }; // se cerró mientras tanto
     // Un invitado solo habla con el anfitrión: nadie más se le puede conectar.
-    this.peer.on('connection', (other) => other?.close?.());
-    const conn = this.peer.connect(peerIdForCode(code), { reliable: true });
-    await waitFor(conn, 'open', this.peer);
+    peer.on('connection', (other) => other?.close?.());
+    const conn = peer.connect(peerIdForCode(code), { reliable: true });
+    await waitFor(conn, 'open', peer);
+    if (this.peer !== peer) throw { type: 'closed' }; // se cerró mientras tanto
     this.connections.set(conn.peer, conn);
     this._listen(conn);
     this.peer.on('error', (err) => this.onError?.(err));
@@ -190,7 +217,9 @@ export class Session {
   /** Manda un mensaje a un peer. */
   send(peerId, message) {
     const conn = this.connections.get(peerId);
-    if (conn?.open) conn.send(message);
+    // Si el canal se cierra justo mientras se manda, el envío falla: no
+    // importa (la desconexión se avisa por otro lado).
+    if (conn?.open) conn.send(message)?.catch?.(() => {});
   }
 
   /** Corta una conexión (por ejemplo, partida llena). */
@@ -209,6 +238,7 @@ export class Session {
     // destroy() avisa 'disconnected' antes de terminar; sin este listener no
     // se reconecta (si no, el código quedaría ocupado en el servidor).
     this.peer?.removeAllListeners('disconnected');
+    clearTimeout(this._retryTimer);
     try {
       this.peer?.destroy();
     } catch {

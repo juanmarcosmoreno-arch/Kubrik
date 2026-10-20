@@ -156,8 +156,9 @@ class Game {
     this.multiplayer.onNotice = (text, isWarning) => {
       this.hud.toast(text, 3);
       this.multiplayerMenu.notice(text, isWarning);
-      // En la pantalla de inicio no se ve el HUD: los avisos importantes, ahí.
-      if (isWarning && this.state === STATE.TITLE) this.menu.setMessage(text);
+      // En el inicio no se ve el HUD y en la pausa queda tapado: los avisos
+      // importantes van también al menú.
+      if (isWarning && this.state !== STATE.PLAYING) this.menu.setMessage(text);
     };
 
     this.state = STATE.TITLE;
