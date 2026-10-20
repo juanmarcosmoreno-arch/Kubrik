@@ -104,12 +104,12 @@ Los mundos se guardan en el navegador (IndexedDB), en la misma computadora.
 - **Inicio:** **Continuar** abre el último mundo jugado. La primera vez dice **Jugar** y crea «Mundo 1». **Nuevo mundo** pide un nombre y una semilla opcional; si la semilla queda vacía, sale una al azar. **Mis mundos** muestra la lista para abrir o borrar mundos. Borrar pide confirmación con un segundo clic.
 - **Cuándo se guarda:** cada 30 segundos, al pausar, al cambiar de mundo, al ocultar la pestaña y con **Guardar y salir** (en la pausa), que además vuelve al inicio. En la pausa se ve si el mundo quedó guardado.
 - **Qué se guarda:** el nombre, la semilla, dónde está el jugador (y si vuela), la hotbar y **solo los chunks que cambiaron**, como diferencias con el terreno generado. El resto se vuelve a generar igual con la semilla. Cada guardado escribe solo los chunks que cambiaron desde el anterior.
-- **Con el multijugador:** el mundo de una partida lo guarda quien la creó, incluido lo que construyen los invitados. Quien entra como invitado no lo guarda. Si sale de la partida, o si se va quien la creó, y sigue jugando, el mundo queda como propio, con el nombre «Mundo de Ana», por ejemplo. Durante una partida no se puede cambiar de mundo.
+- **Con el multijugador:** el mundo de una partida lo guarda quien la creó, incluido lo que construyen los invitados. Quien entra como invitado no lo guarda: en su pausa el botón dice **Salir**, que lo saca de la partida y lo devuelve a su último mundo propio. Si en cambio sale con **Salir de la partida** (en el panel de Multijugador), o se va quien la creó, y sigue jugando, el mundo queda como propio, con el nombre «Mundo de Ana», por ejemplo («Mundo de Ana 2» si ya hay uno). Durante una partida no se puede cambiar de mundo.
 
 **Límites.**
 - Los mundos quedan en ese navegador y esa computadora. Si se borran los datos del sitio, se borran los mundos.
 - Conviene abrir cada mundo en una sola pestaña a la vez: dos pestañas con el mismo mundo se pisan al guardar.
-- Si el navegador no deja guardar (algunos modos privados), se puede jugar igual y la pausa lo avisa.
+- Si el navegador no deja guardar (algunos modos privados), se puede jugar igual: la pausa lo avisa y el juego pregunta antes de cambiar de mundo. Si un guardado falla (por ejemplo, disco lleno), se avisa y se reintenta en el siguiente.
 
 ## Multijugador
 
@@ -119,7 +119,7 @@ Podés jugar en el mismo mundo con amigos, cada uno desde su computadora:
 2. Las demás tocan **Multijugador**, escriben el código en **Unirse** y entran a jugar. Reciben el mundo de quien creó la partida: misma semilla y mismos bloques cambiados. Aparecen al lado de quien la creó. Antes de cambiar de mundo, el propio se guarda.
 3. Cada uno ve a los demás con su personaje, su color y su nombre arriba de la cabeza. Arriba a la derecha está la lista de jugadores. En la pausa están el código y el botón para copiarlo.
 4. Lo que rompe o pone cualquiera aparece en las computadoras de todos.
-5. **Salir de la partida** (en el panel de Multijugador) corta la conexión y deja seguir jugando solo en el mismo mundo. Cerrar el panel mientras se está conectando cancela la conexión.
+5. **Salir de la partida** (en el panel de Multijugador) corta la conexión y deja seguir jugando solo en el mismo mundo. **Guardar y salir** (en la pausa) también deja la partida y vuelve al inicio; si lo hace quien la creó, la partida se cierra para todos (el juego pregunta antes). Cerrar el panel mientras se está conectando cancela la conexión.
 
 **Cómo funciona.**
 - **Conexión:** las computadoras se conectan directo entre sí con WebRTC. Para el primer contacto, que es intercambiar el código, se usa el servidor público y gratuito de [PeerJS](https://peerjs.com/), así que no hace falta un servidor propio y funciona desde GitHub Pages.

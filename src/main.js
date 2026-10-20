@@ -196,16 +196,35 @@ class Game {
     window.addEventListener('resize', () => this.onResize());
     // Ctrl+W cierra la pestaña y ninguna página puede impedirlo; como Ctrl
     // es correr y W avanzar, se pide confirmación antes de salir del juego.
+    // También si quedaron cambios sin guardar (porque falló el guardado).
     window.addEventListener('beforeunload', (e) => {
-      if (this.state === STATE.TITLE && !this.multiplayer.active) return;
+      if (this.state === STATE.TITLE && !this.multiplayer.active && this.world.unsaved.size === 0) return;
       e.preventDefault();
       e.returnValue = '';
     });
-    // Al ocultar la pestaña (o antes de cerrarla) se guarda lo que haya.
+    // Al ocultar la pestaña o cerrarla se guarda lo que haya.
+    const saveNow = () => {
+      if (this.worldInUse || this.world.unsaved.size > 0) this.saves.save();
+    };
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && this.worldInUse) this.saves.save();
+      if (document.visibilityState === 'hidden') saveNow();
     });
-    this.saves.init().then(() => this.openLastWorld());
+    window.addEventListener('pagehide', saveNow);
+    // Autoguardado con su propio reloj: sigue aunque la pestaña esté oculta
+    // (ahí no se dibujan frames, pero pueden llegar cambios de invitados).
+    let lastTick = performance.now();
+    setInterval(() => {
+      const now = performance.now();
+      this.saves.update((now - lastTick) / 1000, this.worldInUse);
+      lastTick = now;
+    }, 1000);
+    // Hasta leer los mundos guardados no se puede empezar (si no, "Jugar"
+    // crearía un mundo nuevo en vez de continuar el último).
+    this.worldsMenu.setBusy(true);
+    this.saves
+      .init()
+      .then(() => this.openLastWorld())
+      .finally(() => this.worldsMenu.setBusy(false));
     this.watchPixelRatio();
     this.onResize();
     this.renderer.setAnimationLoop(() => this.frame());
@@ -283,19 +302,34 @@ class Game {
       this.saves.current.id === null &&
       this.world.edits.size === 0;
     if (!idle()) return;
-    this.worldsMenu.setBusy(true);
     try {
       const data = await this.saves.load(last.id);
       if (data && idle()) this.applySavedWorld(data);
     } catch {
       // Si no se pudo leer, se queda el mundo nuevo.
     }
-    this.worldsMenu.setBusy(false);
+  }
+
+  /**
+   * Antes de dejar el mundo actual: si tiene cambios que no se pueden
+   * guardar (el navegador no deja, o falló el guardado), se pregunta.
+   * @returns {boolean} si se puede seguir
+   */
+  confirmLeaveWorld() {
+    const s = this.saves;
+    if (s.available === false && this.world.edits.size > 0) {
+      return window.confirm('Este navegador no deja guardar: lo que construiste en este mundo se pierde. ¿Seguir?');
+    }
+    if (s.status === 'error' && this.world.unsaved.size > 0) {
+      return window.confirm('No se pudo guardar este mundo: si seguís, se pierden los últimos cambios. ¿Seguir?');
+    }
+    return true;
   }
 
   /** Abre un mundo guardado (y, con `play`, entra a jugarlo). */
   async openWorld(id, { play = false } = {}) {
     if (this.saves.current.id !== id) {
+      if (play && !this.confirmLeaveWorld()) return;
       this.worldsMenu.setBusy(true);
       try {
         const data = await this.saves.load(id);
@@ -310,6 +344,7 @@ class Game {
 
   /** Crea un mundo nuevo (semilla al azar si no se elige) y entra a jugarlo. */
   newWorld({ name, seedText }) {
+    if (!this.confirmLeaveWorld()) return;
     const seed = seedText ? parseSeed(seedText) : crypto.getRandomValues(new Uint32Array(1))[0];
     this.loadWorld({
       seed,
@@ -335,6 +370,56 @@ class Game {
     } catch {
       // Si no se pudo abrir el siguiente, queda uno nuevo.
     }
+    this.freshWorld();
+  }
+
+  /**
+   * Pausa → "Guardar y salir": guarda, deja la partida (si hay) y vuelve al
+   * inicio. Un invitado no guarda el mundo de la partida: vuelve a su último
+   * mundo propio.
+   */
+  async saveAndExit() {
+    const mp = this.multiplayer;
+    if (
+      mp.role === 'host' &&
+      mp.players.size > 0 &&
+      !window.confirm('Se cierra la partida para todos los que están jugando. ¿Salir igual?')
+    ) {
+      return;
+    }
+    const wasGuest = mp.role === 'guest';
+    if (mp.active) mp.leave({ adopt: false });
+    this.state = STATE.TITLE;
+    this.interaction.release();
+    this.hud.setVisible(false);
+    this.menu.showTitle();
+    this.worldsMenu.render();
+    if (wasGuest) {
+      await this.openOwnWorld();
+      return;
+    }
+    const ok = await this.saves.save();
+    if (!ok && this.saves.status === 'error') {
+      this.menu.setMessage('No se pudo guardar el mundo. Entrá de nuevo y probá otra vez.');
+    }
+  }
+
+  /** Abre el último mundo propio guardado o, si no hay, uno nuevo. */
+  async openOwnWorld() {
+    const last = this.saves.worlds[0];
+    try {
+      if (last) {
+        await this.openWorld(last.id);
+        return;
+      }
+    } catch {
+      // Si no se pudo abrir, queda uno nuevo.
+    }
+    this.freshWorld();
+  }
+
+  /** Un mundo nuevo al azar, sin guardar todavía (se guarda al jugarlo). */
+  freshWorld() {
     const seed = crypto.getRandomValues(new Uint32Array(1))[0];
     this.loadWorld({
       seed,
@@ -344,35 +429,13 @@ class Game {
     });
   }
 
-  /** Pausa → "Guardar y salir": guarda, deja la partida (si hay) y vuelve al inicio. */
-  saveAndExit() {
-    const mp = this.multiplayer;
-    if (
-      mp.role === 'host' &&
-      mp.players.size > 0 &&
-      !window.confirm('Se cierra la partida para todos los que están jugando. ¿Salir igual?')
-    ) {
-      return;
-    }
-    if (mp.active) mp.leave(); // como invitado, el mundo queda como propio y se guarda
-    this.saves.save();
-    this.state = STATE.TITLE;
-    this.interaction.release();
-    this.hud.setVisible(false);
-    this.menu.showTitle();
-    this.worldsMenu.render();
-  }
-
   /**
    * Antes de unirse a una partida: se va a jugar en el mundo de quien la
    * creó. El propio se guarda solo; si no se puede guardar y tiene cambios,
    * se pregunta.
    */
   beforeJoin() {
-    if (this.saves.canSave || this.world.edits.size === 0) return true;
-    return window.confirm(
-      'Vas a jugar en el mundo de quien creó la partida y lo que construiste en este mundo se pierde (este navegador no deja guardar). ¿Seguir?',
-    );
+    return this.confirmLeaveWorld();
   }
 
   /**
@@ -412,6 +475,8 @@ class Game {
     if (locked) {
       this.state = STATE.PLAYING;
       this.menu.hideAll();
+      this.worldsMenu.closeAll();
+      this.multiplayerMenu.close();
       this.hud.setVisible(true);
       // Un mundo nuevo se guarda al empezar a jugarlo.
       if (this.saves.current.id === null) this.saves.save();
@@ -490,7 +555,6 @@ class Game {
     // mientras se ve la pantalla de inicio, ya se va cargando).
     this.world.update(this.player.position.x, this.player.position.z);
     this.multiplayer.update(dt);
-    this.saves.update(dt, this.worldInUse);
 
     if (this.state === STATE.TITLE) {
       // Fondo negro como el del logo y el personaje en su recuadro.

@@ -50,7 +50,10 @@ export class WorldsMenu {
     this.list = $('worlds-list');
     this.listMsg = $('worlds-msg');
     this.saveStatus = $('save-status');
+    this.saveExitBtn = $('btn-save-exit');
     this._busy = false;
+    this._armed = null; // {id, until}: "¿Borrar?" esperando el segundo clic
+    this._opener = null; // botón que abrió el panel (vuelve el foco al cerrar)
 
     this.nameInput.maxLength = MAX_WORLD_NAME;
     this.newBtn.addEventListener('click', (e) => {
@@ -80,7 +83,17 @@ export class WorldsMenu {
     this.render();
   }
 
+  /**
+   * Mientras hay un panel abierto, lo de atrás (inicio y pausa) no se puede
+   * usar ni alcanzar con Tab.
+   */
+  _setBackgroundInert(inert) {
+    for (const id of ['title-screen', 'pause-screen']) document.getElementById(id).inert = inert;
+  }
+
   openNew() {
+    this._opener = document.activeElement;
+    this._setBackgroundInert(true);
     this.nameInput.value = '';
     this.nameInput.placeholder = this.saves.defaultName();
     this.seedInput.value = new URLSearchParams(window.location.search).get('semilla') ?? '';
@@ -89,15 +102,22 @@ export class WorldsMenu {
   }
 
   openList() {
+    this._opener = document.activeElement;
+    this._setBackgroundInert(true);
     this.listMsg.textContent = '';
+    this._armed = null;
     this.listPanel.hidden = false;
     this.renderList();
-    this.list.querySelector('button')?.focus();
+    (this.list.querySelector('button:not(:disabled)') ?? document.getElementById('worlds-back')).focus();
   }
 
   closeAll() {
+    if (this.newPanel.hidden && this.listPanel.hidden) return;
     this.newPanel.hidden = true;
     this.listPanel.hidden = true;
+    this._setBackgroundInert(false);
+    if (this._opener?.isConnected && !this._opener.disabled) this._opener.focus();
+    this._opener = null;
   }
 
   /** Bloquea los botones mientras se carga un mundo. */
@@ -132,11 +152,15 @@ export class WorldsMenu {
     else if (cur.id !== null && s.status === 'saved') text = `«${cur.name}» guardado.`;
     else text = 'Se guarda solo cada 30 segundos y al pausar.';
     this.saveStatus.textContent = text;
+    // Si no se guarda (navegador sin guardado, o mundo de otro), solo "Salir".
+    this.saveExitBtn.textContent = s.available === false || cur.foreign ? 'Salir' : 'Guardar y salir';
   }
 
   /** La lista de mundos guardados, con botones para jugar y borrar. */
   renderList() {
     const s = this.saves;
+    // Se rehace entera: se recuerda qué botón tenía el foco para devolvérselo.
+    const focused = this.list.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
     this.list.textContent = '';
     if (!s.worlds.length) {
       const empty = document.createElement('li');
@@ -145,6 +169,7 @@ export class WorldsMenu {
       this.list.appendChild(empty);
       return;
     }
+    const canChange = this.canChangeWorld();
     for (const w of s.worlds) {
       const isCurrent = w.id === s.current.id;
       const li = document.createElement('li');
@@ -154,48 +179,60 @@ export class WorldsMenu {
       const name = document.createElement('strong');
       name.textContent = cleanWorldName(w.name) ?? 'Mundo';
       const meta = document.createElement('span');
-      meta.textContent = `Semilla: ${w.seedText} · ${timeAgo(w.playedAt)}${isCurrent ? ' · abierto' : ''}`;
+      // La semilla al final: si es larga, se corta ella y no la fecha.
+      meta.textContent = `${timeAgo(w.playedAt)}${isCurrent ? ' · abierto' : ''} · Semilla: ${w.seedText}`;
+      meta.title = `Semilla: ${w.seedText}`;
       info.append(name, meta);
 
       const play = document.createElement('button');
       play.type = 'button';
       play.className = 'btn btn-small';
       play.textContent = isCurrent ? 'Continuar' : 'Jugar';
-      play.disabled = this._busy || (!isCurrent && !this.canChangeWorld());
+      play.dataset.focusKey = `play-${w.id}`;
+      play.disabled = this._busy || (!isCurrent && !canChange);
       if (play.disabled && !isCurrent) play.title = 'Salí de la partida para cambiar de mundo.';
       play.addEventListener('click', () => this._play(w.id));
 
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'btn btn-small btn-ghost';
-      del.textContent = 'Borrar';
-      del.disabled = this._busy || (isCurrent && !this.canChangeWorld());
+      del.dataset.focusKey = `del-${w.id}`;
+      del.disabled = this._busy || (isCurrent && !canChange);
       if (del.disabled && isCurrent) del.title = 'Salí de la partida para borrarlo.';
       // Primer clic: pide confirmación; segundo clic (en 4 s): borra.
-      let armed = 0;
-      del.addEventListener('click', async () => {
-        if (!armed) {
-          del.textContent = '¿Borrar?';
-          del.classList.add('btn-danger');
-          armed = setTimeout(() => {
-            armed = 0;
-            del.textContent = 'Borrar';
-            del.classList.remove('btn-danger');
-          }, 4000);
-          return;
-        }
-        clearTimeout(armed);
-        del.disabled = true;
-        try {
-          await this.onDeleteWorld(w.id);
-          this.listMsg.textContent = '';
-        } catch {
-          this.listMsg.textContent = 'No se pudo borrar el mundo.';
-          del.disabled = false;
-        }
-      });
+      const armed = this._armed?.id === w.id && this._armed.until > Date.now();
+      del.textContent = armed ? '¿Borrar?' : 'Borrar';
+      del.classList.toggle('btn-danger', armed);
+      del.addEventListener('click', () => this._delete(w.id, del));
       li.append(info, play, del);
       this.list.appendChild(li);
+    }
+    if (focused) this.list.querySelector(`[data-focus-key="${focused}"]`)?.focus();
+  }
+
+  async _delete(id, button) {
+    if (!(this._armed?.id === id && this._armed.until > Date.now())) {
+      this._armed = { id, until: Date.now() + 4000 };
+      clearTimeout(this._armTimer);
+      this._armTimer = setTimeout(() => {
+        this._armed = null;
+        if (!this.listPanel.hidden) this.renderList();
+      }, 4000);
+      this.renderList();
+      return;
+    }
+    this._armed = null;
+    clearTimeout(this._armTimer);
+    button.disabled = true;
+    try {
+      await this.onDeleteWorld(id);
+      this.listMsg.textContent = '';
+    } catch {
+      this.listMsg.textContent = 'No se pudo borrar el mundo.';
+    }
+    this.renderList();
+    if (!this.list.contains(document.activeElement)) {
+      (this.list.querySelector('button:not(:disabled)') ?? document.getElementById('worlds-back')).focus();
     }
   }
 

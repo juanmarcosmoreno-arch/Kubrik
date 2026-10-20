@@ -57,7 +57,9 @@ export class WorldSaves {
   /** Abre la base y lee la lista de mundos. */
   async init() {
     try {
-      await this.store.open();
+      // Si la base no responde (pasa en algunos navegadores), se juega sin guardar.
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('IndexedDB no responde.')), 5000));
+      await Promise.race([this.store.open(), timeout]);
       this.available = true;
       await this.refresh();
     } catch {
@@ -99,8 +101,17 @@ export class WorldSaves {
    */
   adopt() {
     if (!this.current.foreign) return;
-    this.setCurrent({ name: this.current.name });
+    this.setCurrent({ name: this._uniqueName(this.current.name) });
     if (this.game.inGame) this.save();
+  }
+
+  /** "Mundo de Ana", o "Mundo de Ana 2" si ya hay uno con ese nombre. */
+  _uniqueName(name) {
+    const taken = new Set(this.worlds.map((w) => w.name));
+    if (!taken.has(name)) return name;
+    let n = 2;
+    while (taken.has(`${name} ${n}`)) n++;
+    return `${name} ${n}`;
   }
 
   /** Autoguardado: `active` si se está en un mundo (jugando, en pausa o compartiéndolo). */
@@ -198,10 +209,17 @@ export class WorldSaves {
     };
   }
 
-  /** Borra un mundo guardado. */
+  /**
+   * Borra un mundo guardado. Si es el abierto, deja de guardarse solo cuando
+   * el borrado salió bien (los guardados que ya estaban en fila se escriben
+   * antes y el borrado se los lleva).
+   */
   delete(id) {
-    if (this.current.id === id) this.current.deleted = true;
-    const job = this._queue.then(() => this.store.delete(id));
+    const cur = this.current.id === id ? this.current : null;
+    const job = this._queue.then(async () => {
+      await this.store.delete(id);
+      if (cur) cur.deleted = true;
+    });
     this._queue = job.catch(() => {}).then(() => this.refresh());
     return job;
   }

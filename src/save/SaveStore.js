@@ -76,14 +76,20 @@ export class SaveStore {
   async save(meta, chunks) {
     const db = await this.open();
     const tx = db.transaction(['worlds', 'chunks'], 'readwrite');
+    const done = transactionDone(tx);
     const record = { ...meta };
     if (record.id == null) delete record.id; // el id lo pone la base
     const put = tx.objectStore('worlds').put(record);
-    put.onsuccess = () => {
+    const putChunks = (id) => {
       const store = tx.objectStore('chunks');
-      for (const [key, edits] of chunks) store.put({ world: put.result, key, edits });
+      for (const [key, edits] of chunks) store.put({ world: id, key, edits });
+      // Se confirma ya: al cerrar la pestaña no hay tiempo de esperar.
+      tx.commit?.();
     };
-    await transactionDone(tx);
+    // Con el id conocido, todo se pide de una vez (sin esperar respuestas).
+    if (record.id != null) putChunks(record.id);
+    else put.onsuccess = () => putChunks(put.result);
+    await done;
     return put.result;
   }
 

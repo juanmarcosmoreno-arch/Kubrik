@@ -194,10 +194,14 @@ export class Multiplayer {
 
   /**
    * Sale de la partida (cierra conexiones y saca a los demás jugadores). Un
-   * invitado sigue en el mismo mundo, que pasa a ser suyo (y se guarda).
+   * invitado sigue en el mismo mundo, que pasa a ser suyo y se guarda (salvo
+   * con `adopt: false`, si se va a otro mundo). El anfitrión guarda lo último
+   * que construyeron los invitados.
+   * @param {{adopt?: boolean}} [o]
    */
-  leave() {
+  leave({ adopt = true } = {}) {
     const wasGuest = this.role === 'guest';
+    const wasHost = this.role === 'host';
     this.cancel();
     this.game.world.editListeners.delete(this._editListener);
     for (const id of [...this.players.keys()]) this._removePlayer(id, false);
@@ -206,7 +210,8 @@ export class Multiplayer {
     this.role = null;
     this.code = null;
     this._byPeer.clear();
-    if (wasGuest) this.game.saves.adopt();
+    if (wasGuest && adopt) this.game.saves.adopt();
+    else if (wasHost) this.game.saves.saveIfWorthIt();
     this.onChange?.();
   }
 

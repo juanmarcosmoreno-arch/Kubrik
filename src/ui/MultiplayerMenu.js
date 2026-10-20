@@ -91,7 +91,13 @@ export class MultiplayerMenu {
     this.render();
   }
 
+  /** Mientras el panel está abierto, lo de atrás no se alcanza con Tab. */
+  _setBackgroundInert(inert) {
+    for (const id of ['title-screen', 'pause-screen']) document.getElementById(id).inert = inert;
+  }
+
   open() {
+    this._setBackgroundInert(true);
     this.panel.hidden = false;
     this.render();
     (this.mp.active ? this.playBtn : this.nameInput).focus();
@@ -104,6 +110,7 @@ export class MultiplayerMenu {
       this.setStatus('');
     }
     this.panel.hidden = true;
+    this._setBackgroundInert(false);
   }
 
   setStatus(text, isError = false) {
