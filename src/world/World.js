@@ -6,7 +6,7 @@
 // por frame para no trabar el juego) y se liberan los que quedaron lejos.
 
 import * as THREE from 'three';
-import { BLOCK, getBlock } from './blocks.js';
+import { BLOCK, BLOCKS, getBlock } from './blocks.js';
 import { CHUNK_HEIGHT, CHUNK_SIZE, Chunk } from './Chunk.js';
 import { WATER_SURFACE, buildChunkMesh } from './Mesher.js';
 
@@ -24,6 +24,9 @@ export function toChunkCoord(v) {
 export function toLocalCoord(v) {
   return ((v % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 }
+
+/** ¿Es un ID de bloque que existe? */
+const isKnownBlock = (id) => Boolean(BLOCKS[id]);
 
 /** Tiempo máximo por frame (ms) para generar y mallar chunks. */
 const DEFAULT_BUDGET_MS = 6;
@@ -165,12 +168,26 @@ export class World {
    * camino para modificar el mundo durante el juego: registra la diferencia,
    * rearma al instante la malla del chunk (y la del vecino si el bloque está
    * en un borde) y avisa a los interesados (guardado, multijugador).
-   * @returns {boolean} si el bloque cambió
+   *
+   * Si el chunk no está cargado (por ejemplo, un cambio que llega por la red
+   * de un lugar lejano), solo se registra: se aplica cuando el chunk se genere.
+   *
+   * @param {number} x
+   * @param {number} y
+   * @param {number} z
+   * @param {number} id bloque nuevo
+   * @param {'local' | 'remote'} [source] de dónde viene el cambio: los que
+   *   llegan por la red no se vuelven a mandar
+   * @returns {boolean} si el cambio se aplicó o registró
    */
-  editBlock(x, y, z, id) {
-    if (!this.setBlock(x, y, z, id)) return false;
+  editBlock(x, y, z, id, source = 'local') {
+    if (y < 0 || y >= CHUNK_HEIGHT) return false;
     const cx = toChunkCoord(x);
     const cz = toChunkCoord(z);
+    const loaded = this.getChunk(cx, cz);
+    if (loaded && !this.setBlock(x, y, z, id)) return false;
+    if (!loaded && source === 'local') return false; // el jugador no edita lo que no ve
+
     const key = chunkKey(cx, cz);
     let chunkEdits = this.edits.get(key);
     if (!chunkEdits) {
@@ -180,12 +197,71 @@ export class World {
     chunkEdits.set(Chunk.index(toLocalCoord(x), y, toLocalCoord(z)), id);
 
     // Rearmar ya mismo lo afectado (el chunk y sus vecinos marcados).
-    for (const [dx, dz] of [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]]) {
-      const chunk = this.getChunk(cx + dx, cz + dz);
-      if (chunk?.dirty && chunk.mesh && this._neighborsReady(chunk.cx, chunk.cz)) this.rebuildChunk(chunk);
+    if (loaded) {
+      for (const [dx, dz] of [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        const chunk = this.getChunk(cx + dx, cz + dz);
+        if (chunk?.dirty && chunk.mesh && this._neighborsReady(chunk.cx, chunk.cz)) this.rebuildChunk(chunk);
+      }
     }
-    for (const listener of this.editListeners) listener({ x, y, z, id });
+    for (const listener of this.editListeners) listener({ x, y, z, id, source });
     return true;
+  }
+
+  /**
+   * Bloque que se sabe que hay en (x, y, z): el del chunk si está cargado y,
+   * si no, el último cambio registrado ahí. null si no se sabe (habría que
+   * generar el terreno).
+   */
+  knownBlockAt(x, y, z) {
+    if (y < 0 || y >= CHUNK_HEIGHT) return null;
+    const cx = toChunkCoord(x);
+    const cz = toChunkCoord(z);
+    if (this.getChunk(cx, cz)) return this.getBlock(x, y, z);
+    const id = this.edits.get(chunkKey(cx, cz))?.get(Chunk.index(toLocalCoord(x), y, toLocalCoord(z)));
+    return id ?? null;
+  }
+
+  /** ¿Hay cambios registrados en el chunk de la columna (x, z)? */
+  hasEditsAt(x, z) {
+    return this.edits.has(chunkKey(toChunkCoord(x), toChunkCoord(z)));
+  }
+
+  /**
+   * Cambios de los jugadores en un formato simple para mandar o guardar:
+   * [[clave del chunk, [índice, id, índice, id, ...]], ...].
+   */
+  exportEdits() {
+    const out = [];
+    for (const [key, chunkEdits] of this.edits) {
+      const flat = [];
+      for (const [index, id] of chunkEdits) flat.push(index, id);
+      out.push([key, flat]);
+    }
+    return out;
+  }
+
+  /**
+   * Reemplaza los cambios de los jugadores (formato de exportEdits). Se usa
+   * antes de cargar chunks, al unirse a una partida o al cargar un mundo.
+   * Los valores inválidos se ignoran.
+   */
+  importEdits(data) {
+    this.edits.clear();
+    if (!Array.isArray(data)) return;
+    for (const entry of data) {
+      if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !Array.isArray(entry[1])) continue;
+      if (!/^-?\d+,-?\d+$/.test(entry[0])) continue;
+      const chunkEdits = new Map();
+      const flat = entry[1];
+      for (let i = 0; i + 1 < flat.length; i += 2) {
+        const index = flat[i];
+        const id = flat[i + 1];
+        if (!Number.isInteger(index) || index < 0 || index >= CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) continue;
+        if (!Number.isInteger(id) || !isKnownBlock(id)) continue;
+        chunkEdits.set(index, id);
+      }
+      if (chunkEdits.size) this.edits.set(entry[0], chunkEdits);
+    }
   }
 
   /** Genera los datos de un chunk y le aplica los cambios de los jugadores. */

@@ -418,3 +418,206 @@ kbd {
   color: #fff;
   font-size: 15px;
 }
+
+/* ---------- Botones secundarios ---------- */
+
+.title-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn-secondary {
+  color: var(--cream);
+  background: #2b3127;
+  box-shadow:
+    inset 0 -5px 0 #1a1e17,
+    inset 0 2px 0 rgba(255, 255, 255, 0.08),
+    0 6px 16px rgba(0, 0, 0, 0.18);
+}
+
+.btn-ghost {
+  color: var(--cream);
+  background: transparent;
+  box-shadow: inset 0 0 0 2px rgba(240, 234, 228, 0.25);
+}
+
+.btn-small {
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.btn:disabled:not(.btn-primary) {
+  filter: brightness(0.7);
+}
+
+/* ---------- Multijugador ---------- */
+
+.mp-panel {
+  z-index: 5; /* también sobre la pausa */
+  justify-content: center;
+  padding: 16px;
+  background: rgba(6, 8, 6, 0.72);
+  backdrop-filter: blur(3px);
+  overflow-y: auto;
+}
+
+.mp-card {
+  width: min(720px, 100%);
+  align-items: stretch;
+  text-align: left;
+}
+
+.mp-card h2 {
+  text-align: center;
+}
+
+.mp-card > .hint {
+  text-align: center;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.mp-card input {
+  font: 600 16px/1.2 var(--font-ui);
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 2px solid rgba(240, 234, 228, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--cream);
+  outline: none;
+}
+
+.mp-card input:focus {
+  border-color: var(--lime);
+}
+
+.mp-card input:disabled {
+  opacity: 0.6;
+}
+
+#mp-join-code {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+
+.mp-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 560px) {
+  .mp-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(240, 234, 228, 0.1);
+}
+
+.mp-section h3 {
+  margin: 0;
+  font: 800 16px/1.2 var(--font-ui);
+  color: var(--cream);
+}
+
+.mp-section .hint {
+  margin: 0;
+}
+
+.mp-code-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(166, 204, 12, 0.14);
+}
+
+.mp-code {
+  font: 900 26px/1 var(--font-display);
+  letter-spacing: 0.08em;
+  color: var(--lime);
+  user-select: all;
+  -webkit-user-select: all;
+}
+
+.mp-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.msg.ok {
+  color: var(--lime);
+}
+
+.mp-pause {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(166, 204, 12, 0.12);
+  font-size: 14px;
+  color: var(--cream);
+  cursor: default;
+}
+
+.mp-pause strong {
+  color: var(--lime);
+  letter-spacing: 0.06em;
+}
+
+/* Lista de jugadores en el HUD (arriba a la derecha). */
+.hud-players {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 140px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  font: 600 13px/1.5 var(--font-ui);
+  color: #f2f2f2;
+}
+
+.hud-players-title {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lime);
+}
+
+.hud-player {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-player-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}

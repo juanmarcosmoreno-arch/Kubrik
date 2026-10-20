@@ -23,7 +23,7 @@ El juego se construye por etapas. Siempre queda una versión jugable.
 | 2 | Mundo por chunks y terreno procedural infinito | ✅ |
 | 3 | Física del jugador: gravedad, salto, colisiones, nado | ✅ |
 | 4 | Romper y poner bloques, hotbar, mira | ✅ |
-| Extra | Multijugador: jugar en el mismo mundo desde otra computadora con un código | ⏳ (después de la 4) |
+| Extra | Multijugador: jugar en el mismo mundo desde otra computadora con un código | ✅ |
 | 5 | Guardado en IndexedDB y menú de mundos | ⏳ |
 | 6 | Ciclo día/noche, oclusión ambiental, sonidos, opciones | ⏳ |
 | 7 | Rendimiento: Web Workers, cola de chunks priorizada | ⏳ |
@@ -97,6 +97,27 @@ Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
 - **Tus cambios se recuerdan:** se guardan como diferencias respecto del terreno generado. Si te alejás y el chunk se descarga, al volver tu construcción sigue ahí. Hasta la etapa 5, que agrega el guardado, se pierden al recargar la página. Ese registro es lo que se guarda en la etapa 5 y lo que se comparte en el multijugador.
 - **Mira:** en primera persona y en tercera desde atrás marca el bloque apuntado. En la vista de frente se oculta.
 
+## Multijugador
+
+Podés jugar en el mismo mundo con amigos, cada uno desde su computadora:
+
+1. Una persona toca **Multijugador → Crear partida** y recibe un código, por ejemplo `K7Q-X2M`. Puede copiarlo y mandarlo por cualquier chat. El botón **Multijugador** está en la pantalla de inicio y también en la pausa: así se puede invitar a alguien a un mundo en el que ya se viene jugando.
+2. Las demás tocan **Multijugador**, escriben el código en **Unirse** y entran a jugar. Reciben el mundo de quien creó la partida: misma semilla y mismos bloques cambiados. Aparecen al lado de quien la creó.
+3. Cada uno ve a los demás con su personaje, su color y su nombre arriba de la cabeza. Arriba a la derecha está la lista de jugadores. En la pausa están el código y el botón para copiarlo.
+4. Lo que rompe o pone cualquiera aparece en las computadoras de todos.
+5. **Salir de la partida** (en el panel de Multijugador) corta la conexión y deja seguir jugando solo en el mismo mundo. Cerrar el panel mientras se está conectando cancela la conexión.
+
+**Cómo funciona.**
+- **Conexión:** las computadoras se conectan directo entre sí con WebRTC. Para el primer contacto, que es intercambiar el código, se usa el servidor público y gratuito de [PeerJS](https://peerjs.com/), así que no hace falta un servidor propio y funciona desde GitHub Pages.
+- **Qué viaja por la red:** el terreno no. Cada computadora lo genera con la semilla, y solo viajan las posiciones y los cambios de bloques.
+- **El anfitrión:** quien crea la partida ordena los cambios para que todos terminen viendo el mismo mundo. También revisa todo lo que mandan los demás, porque un jugador podría usar una versión modificada del juego. No acepta bloques inválidos, ni romper o poner lecho primordial, ni cambios lejos de donde está el jugador. Tampoco acepta más de 30 cambios ni 30 posiciones por segundo por jugador. Los mensajes viajan en formato MsgPack, que no se puede usar para colgar la pestaña de otro con un mensaje armado a propósito.
+
+**Límites.**
+- La partida dura mientras quien la creó tenga el juego abierto. Si se va, los demás siguen jugando solos en ese mundo.
+- Admite hasta 6 jugadores.
+- En algunas redes muy cerradas, como empresas o colegios, la conexión directa puede fallar. PeerJS incluye servidores de respaldo (TURN) que ayudan en muchos casos.
+- Para usar otro servidor de PeerJS, uno propio o uno local para probar con `npx peer --port 9000`, agregá `?servidor=host:puerto` a la dirección, en todas las computadoras. Sin protocolo se usa el de la página: desde GitHub Pages (https) el servidor tiene que tener https. Para uno local sin https, escribilo con el protocolo: `?servidor=http://localhost:9000`.
+
 ## El mundo
 
 El mundo es infinito y se genera a medida que te movés, en chunks de 16 × 16 bloques de base y 128 de alto.
@@ -141,6 +162,7 @@ src/
     Raycast.js          → bloque apuntado con DDA
     Interaction.js      → romper y poner bloques
     Avatar.js           → modelo del personaje (piezas redondeadas), animación y expresiones
+    RemotePlayer.js     → otro jugador: su personaje, su nombre y movimiento suavizado
     ViewCamera.js       → cámara en primera y tercera persona (tecla V)
   render/
     atlasLayout.js      → ubicación de cada textura en el atlas (sin DOM, apto para workers)
@@ -157,8 +179,13 @@ src/
     Hud.js              → mira, FPS y avisos (después, coordenadas con F3)
     Hotbar.js           → las 9 casillas de bloques
     Menu.js             → pantalla de inicio (con selector de color) y menú de pausa
+    MultiplayerMenu.js  → panel de multijugador, lista de jugadores y datos en la pausa
+  net/
+    protocol.js         → códigos de partida, mensajes y validación de lo que llega por la red
+    Session.js          → conexión WebRTC con PeerJS (anfitrión e invitados)
+    Multiplayer.js      → estado de los jugadores y cambios de bloques compartidos
   save/
-    Preferences.js      → preferencias del jugador (color del personaje)
+    Preferences.js      → preferencias del jugador (color del personaje y nombre)
     Storage.js          → (etapa 5) guardado en IndexedDB
 ```
 

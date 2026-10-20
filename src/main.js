@@ -22,6 +22,8 @@ import { BlockOutline } from './render/BlockOutline.js';
 import { HeldItem } from './render/HeldItem.js';
 import { getBlockGeometry } from './render/blockGeometry.js';
 import { BlockInteraction } from './player/Interaction.js';
+import { Multiplayer } from './net/Multiplayer.js';
+import { MultiplayerMenu } from './ui/MultiplayerMenu.js';
 
 // Paso de tiempo máximo por frame: si el navegador se traba, el juego no
 // "salta" de golpe.
@@ -133,6 +135,7 @@ class Game {
       onAction: () => {
         this.heldItem.swing();
         this.avatar.swing();
+        this.multiplayer.countAction();
       },
     });
     this.menu = new Menu({
@@ -143,6 +146,20 @@ class Game {
       onColor: (key) => this.setAvatarColor(key),
     });
 
+    // --- Multijugador ---
+    this.multiplayer = new Multiplayer(this);
+    this.multiplayerMenu = new MultiplayerMenu(this.multiplayer, {
+      onPlay: () => this.controls.lock(),
+      hudRoot: this.hud.root,
+      onPauseMessage: (text) => this.menu.setMessage(text, true),
+    });
+    this.multiplayer.onNotice = (text, isWarning) => {
+      this.hud.toast(text, 3);
+      this.multiplayerMenu.notice(text, isWarning);
+      // En la pantalla de inicio no se ve el HUD: los avisos importantes, ahí.
+      if (isWarning && this.state === STATE.TITLE) this.menu.setMessage(text);
+    };
+
     this.state = STATE.TITLE;
     this.menu.showTitle();
     this.hud.setVisible(false);
@@ -152,13 +169,36 @@ class Game {
     // Ctrl+W cierra la pestaña y ninguna página puede impedirlo; como Ctrl
     // es correr y W avanzar, se pide confirmación antes de salir del juego.
     window.addEventListener('beforeunload', (e) => {
-      if (this.state === STATE.TITLE) return;
+      if (this.state === STATE.TITLE && !this.multiplayer.active) return;
       e.preventDefault();
       e.returnValue = '';
     });
     this.watchPixelRatio();
     this.onResize();
     this.renderer.setAnimationLoop(() => this.frame());
+  }
+
+  /**
+   * Cambia el mundo: otra semilla y, opcionalmente, cambios de bloques ya
+   * hechos (al unirse a una partida y, en la etapa 5, al cargar un mundo).
+   * @param {{seed: number, seedText?: string, edits?: unknown, spawn?: {x: number, y: number, z: number}}} o
+   */
+  loadWorld({ seed, seedText, edits, spawn }) {
+    this.world.dispose();
+    this.scene.remove(this.world.group);
+    this.options.seed = seed;
+    this.options.seedText = seedText ?? String(seed);
+    this.generator = new TerrainGenerator(seed);
+    this.world = new World(this.materials, this.generator, {
+      renderDistance: this.options.renderDistance,
+    });
+    this.world.importEdits(edits);
+    this.scene.add(this.world.group);
+    this.interaction.world = this.world;
+    this.applyRenderDistance();
+    const s = spawn ?? this.generator.findSpawn();
+    this.player.spawn(s.x, s.y, s.z, this.player.yaw, this.player.pitch);
+    this.world.preload(s.x, s.z, 2);
   }
 
   /**
@@ -190,6 +230,7 @@ class Game {
     this.avatar.setVariant(key);
     this.preview.setVariant(key);
     savePreference('color', key);
+    this.multiplayerMenu?.render(); // el color propio en la lista de jugadores
   }
 
   /** Cambio de captura del mouse: entra o sale del modo de juego. */
@@ -271,6 +312,7 @@ class Game {
     // El mundo se genera alrededor del jugador en todos los estados (así,
     // mientras se ve la pantalla de inicio, ya se va cargando).
     this.world.update(this.player.position.x, this.player.position.z);
+    this.multiplayer.update(dt);
 
     if (this.state === STATE.TITLE) {
       // Fondo negro como el del logo y el personaje en su recuadro.

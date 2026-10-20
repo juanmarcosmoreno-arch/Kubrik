@@ -96,9 +96,11 @@ export class Menu {
     this.pause.hidden = true;
   }
 
-  /** Muestra un aviso corto en la pantalla visible. */
-  setMessage(text) {
-    this.titleMsg.textContent = text;
-    this.pauseMsg.textContent = text;
+  /** Muestra un aviso corto en la pantalla visible (`ok`: en verde, no es un error). */
+  setMessage(text, ok = false) {
+    for (const el of [this.titleMsg, this.pauseMsg]) {
+      el.textContent = text;
+      el.classList.toggle('ok', ok);
+    }
   }
 }

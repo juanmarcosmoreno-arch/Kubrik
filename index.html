@@ -26,6 +26,7 @@
           <p class="tagline">Construí tu mundo, bloque a bloque</p>
           <div class="title-actions">
             <button id="btn-play" class="btn btn-primary" type="button">Jugar</button>
+            <button id="btn-multiplayer" class="btn btn-secondary" type="button">Multijugador</button>
           </div>
           <p id="title-msg" class="msg" role="status"></p>
           <p id="device-note" class="note" hidden>Megabrick se juega en PC o Mac, con teclado y mouse.</p>
@@ -50,11 +51,51 @@
       </div>
     </div>
 
+    <!-- Panel de multijugador (sobre la pantalla de inicio o la pausa) -->
+    <div id="mp-panel" class="screen mp-panel" hidden role="dialog" aria-labelledby="mp-title" aria-modal="true">
+      <div class="panel mp-card">
+        <h2 id="mp-title">Multijugador</h2>
+        <p class="hint">Jugá en el mismo mundo con amigos desde otras computadoras.</p>
+        <label class="field">
+          <span>Tu nombre</span>
+          <input id="mp-name" type="text" maxlength="16" autocomplete="nickname" spellcheck="false" />
+        </label>
+        <div class="mp-columns">
+          <section class="mp-section">
+            <h3>Crear partida</h3>
+            <p class="hint">Se comparte este mundo. Pasales el código a tus amigos.</p>
+            <button id="mp-host" class="btn btn-secondary" type="button">Crear partida</button>
+            <div id="mp-code-box" class="mp-code-box" hidden>
+              <span id="mp-code" class="mp-code"></span>
+              <button id="mp-copy" class="btn btn-small" type="button">Copiar</button>
+            </div>
+          </section>
+          <section class="mp-section">
+            <h3>Unirse</h3>
+            <p class="hint">Escribí el código que te pasaron.</p>
+            <input id="mp-join-code" type="text" placeholder="K7Q-X2M" maxlength="9" autocomplete="off" spellcheck="false" aria-label="Código de la partida" />
+            <button id="mp-join" class="btn btn-secondary" type="button">Unirse</button>
+          </section>
+        </div>
+        <p id="mp-status" class="msg" role="status"></p>
+        <div class="mp-actions">
+          <button id="mp-play" class="btn btn-primary" type="button" hidden>Jugar</button>
+          <button id="mp-leave" class="btn btn-ghost" type="button" hidden>Salir de la partida</button>
+          <button id="mp-back" class="btn btn-ghost" type="button">Volver</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Menú de pausa -->
     <div id="pause-screen" class="screen" hidden>
       <div class="panel">
         <h2>Pausa</h2>
         <button id="btn-resume" class="btn btn-primary" type="button">Continuar</button>
+        <button id="btn-pause-mp" class="btn btn-secondary" type="button">Multijugador</button>
+        <div id="mp-pause" class="mp-pause" hidden>
+          <span>Partida <strong id="mp-pause-code"></strong> · <span id="mp-pause-count"></span></span>
+          <button id="mp-pause-copy" class="btn btn-small" type="button">Copiar código</button>
+        </div>
         <p class="hint">También podés hacer clic en cualquier parte de la pantalla.</p>
         <p id="pause-msg" class="msg" role="status"></p>
       </div>

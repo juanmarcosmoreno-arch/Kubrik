@@ -450,7 +450,8 @@ export class Avatar {
   /** Libera geometrías y materiales (las texturas se comparten y quedan). */
   dispose() {
     this.root.traverse((o) => {
-      if (o.isMesh) o.geometry.dispose();
+      // El bloque en la mano usa una geometría compartida (no se libera acá).
+      if (o.isMesh && o !== this.heldBlock) o.geometry.dispose();
     });
     for (const m of Object.values(this.mats)) m.dispose();
   }
