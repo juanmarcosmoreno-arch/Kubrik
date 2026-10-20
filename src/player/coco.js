@@ -1485,6 +1485,7 @@ export function createCharacter(THREE, { color = '#8a4fd6' } = {}) {
   // ---------------------------------------------------------------------------
   let reloj = 0, fase = 0, mov = 0, corre = 0, vuelo = 0;
   let golpeT = 0; // tiempo que le queda al golpe
+  let otroGolpe = false; // llegó otro golpe mientras golpeaba
   let tExpr = 99; // segundos desde el último cambio de expresión
   let parpadeoT = 0, proxParpadeo = 1.5, dobleParpadeo = false;
   let mirarX = 0, mirarY = 0, objMirarX = 0, objMirarY = 0, proxMirada = 1;
@@ -1592,8 +1593,10 @@ export function createCharacter(THREE, { color = '#8a4fd6' } = {}) {
   }
 
   function swing() {
-    // si ya está golpeando, arranca de nuevo con la pinza ya medio levantada
-    golpeT = golpeT > 0 ? GOLPE_DUR * 0.8 : GOLPE_DUR;
+    // Si ya está golpeando, el siguiente espera a que termine este: así la
+    // pinza siempre arranca desde abajo y no salta a mitad de camino.
+    if (golpeT > 0) otroGolpe = true;
+    else golpeT = GOLPE_DUR;
   }
 
   // Pesos del golpe: alza (levanta la pinza por arriba) → pega (la baja de
@@ -1643,6 +1646,10 @@ export function createCharacter(THREE, { color = '#8a4fd6' } = {}) {
 
     // --- golpe ---
     golpeT = Math.max(0, golpeT - dt);
+    if (golpeT <= 0 && otroGolpe) {
+      golpeT = GOLPE_DUR;
+      otroGolpe = false;
+    }
     pesosGolpe();
     const esfuerzo = G.pega * 0.15 + G.alza * 0.05;
 

@@ -128,6 +128,11 @@ class Game {
     }
     // En el juego, el reflejo depende de la hora (lo maneja el cielo).
     this.sky.setTime(START_TIME);
+    // Armar ya los shaders de Coco (con las luces y el reflejo del juego):
+    // si no, el juego se traba la primera vez que se ve uno (al apretar V o
+    // cuando entra alguien a la partida). Como el Coco propio sigue vivo,
+    // tampoco se pierden cuando se va el último jugador.
+    this.renderer.compile(this.avatar.root, this.camera, this.scene);
     this.stageEl = document.getElementById('character-stage');
     // La cámara va en la escena para poder colgarle el bloque en la mano.
     this.scene.add(this.camera);

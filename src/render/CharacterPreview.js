@@ -94,8 +94,9 @@ export class CharacterPreview {
     renderer.setScissor(x, y, rect.width, rect.height);
     renderer.setScissorTest(true);
     this.camera.aspect = rect.width / rect.height;
-    // Si el recuadro es angosto, alejar la cámara para que entre entero.
-    const dist = Math.max(4.6, 2.6 / this.camera.aspect);
+    // Si el recuadro es angosto, alejar la cámara para que entre entero
+    // (también con los brazos abiertos, como cuando se sorprende).
+    const dist = Math.max(4.6, 3.3 / this.camera.aspect);
     this.camera.position.set(0, CAMERA_Y, dist);
     this.camera.lookAt(0, LOOK_Y, 0);
     this.camera.updateProjectionMatrix();
