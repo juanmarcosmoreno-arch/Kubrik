@@ -6,14 +6,16 @@
 //
 // El resultado es UNA geometría por chunk (arrays tipados) con un grupo por
 // capa de render (opaca, recortada y translúcida), sin dependencias de
-// Three.js ni del DOM: así este módulo puede correr en un Web Worker (etapa 7).
+// Three.js ni del DOM: así este módulo corre en los Web Workers
+// (chunkWorker.js) y también en el hilo principal, para rearmar al instante
+// el chunk que el jugador acaba de cambiar.
 //
 // Oclusión ambiental por vértice: cada esquina de cada cara se oscurece según
 // cuántos bloques sólidos la rodean (los rincones y la base de las paredes
 // quedan en penumbra), y eso se guarda en el color del vértice.
 
 import { BLOCK, BLOCKS } from './blocks.js';
-import { CHUNK_HEIGHT, CHUNK_SIZE, Chunk } from './Chunk.js';
+import { CHUNK_HEIGHT, CHUNK_SIZE } from './Chunk.js';
 import { tileUV } from '../render/atlasLayout.js';
 
 // Altura de la superficie del agua cuando no tiene agua arriba (un poco más
@@ -136,7 +138,10 @@ FACES.forEach((face, f) => {
 const PAD_W = CHUNK_SIZE + 2; // 18
 const PAD_AREA = PAD_W * PAD_W; // 324
 const PAD_H = CHUNK_HEIGHT + 2; // y de -1 a 128
-const padded = new Uint8Array(PAD_AREA * PAD_H);
+/** Tamaño de la copia con borde (bytes). */
+export const PADDED_SIZE = PAD_AREA * PAD_H;
+/** Copia que usa el mallado en este hilo (buildChunkMesh). */
+const padded = new Uint8Array(PADDED_SIZE);
 /** Índice en la copia con borde de (x, y, z) locales (de -1 a 16 / 128). */
 const padIndex = (x, y, z) => x + 1 + (z + 1) * PAD_W + (y + 1) * PAD_AREA;
 /** Desplazamiento en la copia para moverse (dx, dy, dz). */
@@ -170,33 +175,43 @@ FACES.forEach((face, f) => {
 /** Brillo según cuántos lados de la esquina están libres (0 = rincón cerrado). */
 const AO_LIGHT = new Float32Array([0.5, 0.67, 0.84, 1]);
 
-/** Copia el chunk y el borde de sus vecinos (lo que falta cuenta como aire). */
-function fillPadded(data, n) {
-  padded.fill(BLOCK.AIR);
+/**
+ * Copia el chunk y el borde de sus vecinos en `out` (lo que falta cuenta
+ * como aire). Es lo único que necesita el mallado: el hilo principal arma la
+ * copia (es rápido) y se la pasa al worker sin copiar los 9 chunks enteros.
+ * @param {Uint8Array} data bloques del chunk
+ * @param {object} n vecinos (ver buildChunkMesh)
+ * @param {Uint8Array} out de PADDED_SIZE bytes
+ */
+export function padChunk(data, n, out) {
+  out.fill(BLOCK.AIR);
   // Debajo del mundo: sólido (no se ve la cara de abajo de y = 0).
-  padded.fill(BLOCK.BEDROCK, 0, PAD_AREA);
+  out.fill(BLOCK.BEDROCK, 0, PAD_AREA);
   const last = CHUNK_SIZE - 1;
   for (let y = 0; y < CHUNK_HEIGHT; y++) {
     const yi = y << 8;
-    for (let z = 0; z < CHUNK_SIZE; z++) {
-      padded.set(data.subarray(yi + (z << 4), yi + (z << 4) + CHUNK_SIZE), padIndex(0, y, z));
+    // Fila por fila, a mano: más rápido que crear 16 subarrays por capa.
+    let o = padIndex(0, y, 0);
+    for (let src = yi; src < yi + 256; src += CHUNK_SIZE, o += PAD_W) {
+      for (let x = 0; x < CHUNK_SIZE; x++) out[o + x] = data[src + x];
     }
     for (let i = 0; i < CHUNK_SIZE; i++) {
-      if (n.nx) padded[padIndex(-1, y, i)] = n.nx[yi + (i << 4) + last];
-      if (n.px) padded[padIndex(CHUNK_SIZE, y, i)] = n.px[yi + (i << 4)];
-      if (n.nz) padded[padIndex(i, y, -1)] = n.nz[yi + (last << 4) + i];
-      if (n.pz) padded[padIndex(i, y, CHUNK_SIZE)] = n.pz[yi + i];
+      if (n.nx) out[padIndex(-1, y, i)] = n.nx[yi + (i << 4) + last];
+      if (n.px) out[padIndex(CHUNK_SIZE, y, i)] = n.px[yi + (i << 4)];
+      if (n.nz) out[padIndex(i, y, -1)] = n.nz[yi + (last << 4) + i];
+      if (n.pz) out[padIndex(i, y, CHUNK_SIZE)] = n.pz[yi + i];
     }
-    if (n.nxnz) padded[padIndex(-1, y, -1)] = n.nxnz[yi + (last << 4) + last];
-    if (n.pxnz) padded[padIndex(CHUNK_SIZE, y, -1)] = n.pxnz[yi + (last << 4)];
-    if (n.nxpz) padded[padIndex(-1, y, CHUNK_SIZE)] = n.nxpz[yi + last];
-    if (n.pxpz) padded[padIndex(CHUNK_SIZE, y, CHUNK_SIZE)] = n.pxpz[yi];
+    if (n.nxnz) out[padIndex(-1, y, -1)] = n.nxnz[yi + (last << 4) + last];
+    if (n.pxnz) out[padIndex(CHUNK_SIZE, y, -1)] = n.pxnz[yi + (last << 4)];
+    if (n.nxpz) out[padIndex(-1, y, CHUNK_SIZE)] = n.nxpz[yi + last];
+    if (n.pxpz) out[padIndex(CHUNK_SIZE, y, CHUNK_SIZE)] = n.pxpz[yi];
   }
+  return out;
 }
 
 /**
- * Buffers que crecen solos y se reutilizan entre chunks (el mallado es
- * sincrónico, así que no hay dos chunks usándolos a la vez).
+ * Buffers que crecen solos y se reutilizan entre chunks (cada hilo tiene los
+ * suyos y malla de a un chunk, así que no hay dos chunks usándolos a la vez).
  */
 class LayerBuffer {
   constructor() {
@@ -227,8 +242,8 @@ class LayerBuffer {
 
 const LAYERS = [new LayerBuffer(), new LayerBuffer(), new LayerBuffer()];
 
-/** Agrega una cara (4 vértices) del bloque `id` en (x, y, z); `pi`: su índice en la copia con borde. */
-function emitFace(buf, f, id, x, y, z, pi, topHeight) {
+/** Agrega una cara (4 vértices) del bloque `id` en (x, y, z); `pi`: su índice en la copia con borde `pad`. */
+function emitFace(buf, pad, f, id, x, y, z, pi, topHeight) {
   buf.reserveQuad();
   const P = buf.positions;
   const N = buf.normals;
@@ -266,9 +281,9 @@ function emitFace(buf, f, id, x, y, z, pi, topHeight) {
     if (shade) {
       const o = aoBase + c * 3;
       // Los desplazamientos ya incluyen el paso hacia afuera de la cara.
-      const s1 = OPAQUE[padded[pi + AO_OFFSETS[o]]];
-      const s2 = OPAQUE[padded[pi + AO_OFFSETS[o + 1]]];
-      ao = s1 && s2 ? 0 : 3 - s1 - s2 - OPAQUE[padded[pi + AO_OFFSETS[o + 2]]];
+      const s1 = OPAQUE[pad[pi + AO_OFFSETS[o]]];
+      const s2 = OPAQUE[pad[pi + AO_OFFSETS[o + 1]]];
+      ao = s1 && s2 ? 0 : 3 - s1 - s2 - OPAQUE[pad[pi + AO_OFFSETS[o + 2]]];
     }
     L[v] = ao;
   }
@@ -296,6 +311,15 @@ function faceVisible(id, n) {
 }
 
 /**
+ * @typedef {{positions: Float32Array, normals: Float32Array, uvs: Float32Array,
+ *   colors: Float32Array, indices: Uint16Array | Uint32Array,
+ *   groups: {start: number, count: number, materialIndex: number}[],
+ *   minY: number, maxY: number}} ChunkMeshData
+ * minY/maxY: alturas entre las que hay caras (para la caja que usa Three.js
+ * al decidir qué chunks están a la vista).
+ */
+
+/**
  * Arma los datos de malla de un chunk.
  *
  * @param {Uint8Array} data bloques del chunk
@@ -304,31 +328,38 @@ function faceVisible(id, n) {
  *   datos de los 8 chunks vecinos (-X, +X, -Z, +Z y las diagonales) para las
  *   caras y la oclusión de los bordes. Si falta uno, se lo trata como aire.
  * @param {number} [maxY] bloque no-aire más alto del chunk (optimización)
- * @returns {null | {positions: Float32Array, normals: Float32Array, uvs: Float32Array,
- *   colors: Float32Array, indices: Uint16Array | Uint32Array,
- *   groups: {start: number, count: number, materialIndex: number}[]}}
- *   null si el chunk no tiene ninguna cara visible.
+ * @returns {ChunkMeshData | null} null si el chunk no tiene ninguna cara visible.
  */
 export function buildChunkMesh(data, neighbors = {}, maxY = CHUNK_HEIGHT - 1) {
+  return meshPadded(padChunk(data, neighbors, padded), maxY);
+}
+
+/**
+ * Arma los datos de malla desde la copia con borde (ver padChunk).
+ * @param {Uint8Array} pad
+ * @param {number} [maxY] bloque no-aire más alto del chunk (optimización)
+ * @returns {ChunkMeshData | null}
+ */
+export function meshPadded(pad, maxY = CHUNK_HEIGHT - 1) {
   for (const l of LAYERS) l.vertexCount = 0;
-  fillPadded(data, neighbors);
   const neighbor = new Uint8Array(6); // -X, +X, -Y, +Y, -Z, +Z (orden de FACES)
   const lastY = CHUNK_HEIGHT - 1;
   const top = Math.min(lastY, maxY);
+  let lowY = CHUNK_HEIGHT;
+  let highY = 0;
 
   for (let y = 0; y <= top; y++) {
     for (let z = 0; z < CHUNK_SIZE; z++) {
       for (let x = 0; x < CHUNK_SIZE; x++) {
-        const idx = Chunk.index(x, y, z);
-        const id = data[idx];
+        const pi = padIndex(x, y, z);
+        const id = pad[pi];
         if (id === 0) continue;
         const layer = LAYER_OF[id];
         if (layer < 0) continue;
 
         // Vecinos (en los bordes, del chunk de al lado; debajo del mundo,
         // sólido: la cara de abajo de y = 0 no se ve).
-        const pi = padIndex(x, y, z);
-        for (let f = 0; f < 6; f++) neighbor[f] = padded[pi + FACE_OFFSET[f]];
+        for (let f = 0; f < 6; f++) neighbor[f] = pad[pi + FACE_OFFSET[f]];
 
         // Descarte rápido: bloque totalmente rodeado de bloques opacos.
         if (
@@ -347,10 +378,15 @@ export function buildChunkMesh(data, neighbors = {}, maxY = CHUNK_HEIGHT - 1) {
         const lowered = LIQUID[id] && neighbor[3] !== id;
         const topHeight = lowered ? WATER_SURFACE : 1;
         const buf = LAYERS[layer];
+        const before = buf.vertexCount;
         for (let f = 0; f < 6; f++) {
           if ((f === 3 && lowered) || faceVisible(id, neighbor[f])) {
-            emitFace(buf, f, id, x, y, z, pi, topHeight);
+            emitFace(buf, pad, f, id, x, y, z, pi, topHeight);
           }
+        }
+        if (buf.vertexCount !== before) {
+          if (y < lowY) lowY = y;
+          highY = y + 1;
         }
       }
     }
@@ -404,5 +440,5 @@ export function buildChunkMesh(data, neighbors = {}, maxY = CHUNK_HEIGHT - 1) {
     groups.push({ start, count: i - start, materialIndex: layer });
     v += l.vertexCount;
   }
-  return { positions, normals, uvs, colors, indices, groups };
+  return { positions, normals, uvs, colors, indices, groups, minY: lowY, maxY: highY };
 }

@@ -6,6 +6,7 @@ import { createAtlasTexture } from './render/textures.js';
 import { createBlockMaterials } from './render/materials.js';
 import { START_TIME, Sky } from './render/Sky.js';
 import { World, toChunkCoord } from './world/World.js';
+import { createChunkWorkers } from './world/ChunkWorkers.js';
 import { BLOCK, getBlock } from './world/blocks.js';
 import { TerrainGenerator, parseSeed } from './world/TerrainGen.js';
 import { Player } from './player/Player.js';
@@ -87,9 +88,12 @@ class Game {
     this.materials = createBlockMaterials(this.atlas.texture);
 
     // --- Mundo ---
+    // Los workers generan y mallan los chunks (los comparten todos los mundos).
+    this.chunkWorkers = createChunkWorkers();
     this.generator = new TerrainGenerator(this.options.seed);
     this.world = new World(this.materials, this.generator, {
       renderDistance: this.options.renderDistance,
+      workers: this.chunkWorkers,
     });
     this.scene.add(this.world.group);
 
@@ -101,9 +105,9 @@ class Game {
     // Aparece en tierra firme cerca del origen, mirando al horizonte.
     const spawn = this.generator.findSpawn();
     this.player.spawn(spawn.x, spawn.y, spawn.z, 0, -0.1);
-    // Los chunks de alrededor se cargan ya; el resto, de a poco por frame
+    // Los chunks de alrededor se cargan ya; el resto, en los workers
     // (mientras se ve la pantalla de inicio ya se va cargando).
-    this.world.preload(spawn.x, spawn.z, 2);
+    this.world.preload(spawn.x, spawn.z, 1);
     this.view = new ViewCamera(this.camera);
 
     // --- Personaje (se ve en tercera persona y en la pantalla de inicio) ---
@@ -221,6 +225,7 @@ class Game {
     this.hud.setVisible(false);
 
     this.clock = new THREE.Clock();
+    this.frameTimes = { ms: 0, worst: 0, frames: 0, time: 0, slowest: 0 };
     window.addEventListener('resize', () => this.onResize());
     // Ctrl+W cierra la pestaña y ninguna página puede impedirlo; como Ctrl
     // es correr y W avanzar, se pide confirmación antes de salir del juego.
@@ -291,6 +296,7 @@ class Game {
     this.generator = new TerrainGenerator(seed);
     this.world = new World(this.materials, this.generator, {
       renderDistance: this.options.renderDistance,
+      workers: this.chunkWorkers,
     });
     this.world.importEdits(edits);
     this.world.editListeners.add(this._onWorldEdit);
@@ -303,7 +309,7 @@ class Game {
     this.player.setFlying(Boolean(look?.flying));
     if (hotbar) this.hotbar.setSlots(hotbar.slots, hotbar.selected);
     this.saves.setCurrent(save);
-    this.world.preload(s.x, s.z, 2);
+    this.world.preload(s.x, s.z, 1);
   }
 
   /** Un mundo leído del guardado (WorldSaves.load) pasa a ser el actual. */
@@ -607,7 +613,7 @@ class Game {
     // Adelante es -Z (norte) con yaw 0; girar a la izquierda sube el yaw.
     const directions = ['norte (-Z)', 'oeste (-X)', 'sur (+Z)', 'este (+X)'];
     const facing = directions[((Math.round(this.player.yaw / (Math.PI / 2)) % 4) + 4) % 4];
-    const { loaded, meshed } = this.world.stats;
+    const { loaded, meshed, working, waiting } = this.world.stats;
     this.hud.setDebug([
       `XYZ: ${p.x.toFixed(2)} / ${p.y.toFixed(2)} / ${p.z.toFixed(2)}`,
       `Bloque: ${bx} ${by} ${bz}  ·  Chunk: ${toChunkCoord(bx)} ${toChunkCoord(bz)}`,
@@ -616,7 +622,28 @@ class Game {
       `Hora: ${this.sky.clock} (${this.sky.isNight ? 'noche' : 'día'})`,
       `Semilla: ${this.options.seedText}`,
       `Chunks: ${meshed} visibles, ${loaded} en memoria  ·  distancia ${this.world.renderDistance}`,
+      this.chunkWorkers && !this.chunkWorkers.broken
+        ? `Workers: ${this.chunkWorkers.workers.length}  ·  ${working} trabajando, ${waiting} esperando`
+        : 'Workers: no (el mundo se arma en el hilo principal)',
+      `Frame: ${this.frameTimes.ms.toFixed(1)} ms promedio, el más lento ${this.frameTimes.worst.toFixed(1)} ms`,
     ]);
+  }
+
+  /**
+   * Duración de los frames (para F3): el promedio y el más lento de cada
+   * medio segundo (un frame lento es un tirón aunque los FPS den bien).
+   */
+  measureFrameTimes(realDt) {
+    const f = this.frameTimes;
+    f.frames++;
+    f.time += realDt;
+    f.slowest = Math.max(f.slowest, realDt);
+    if (f.time < 0.5) return;
+    f.ms = (f.time / f.frames) * 1000;
+    f.worst = f.slowest * 1000;
+    f.frames = 0;
+    f.time = 0;
+    f.slowest = 0;
   }
 
   /** Abre un poco el campo de visión al correr (con transición suave). */
@@ -633,10 +660,12 @@ class Game {
   frame() {
     const realDt = this.clock.getDelta();
     const dt = Math.min(realDt, MAX_DT);
+    this.measureFrameTimes(realDt);
 
     // El mundo se genera alrededor del jugador en todos los estados (así,
-    // mientras se ve la pantalla de inicio, ya se va cargando).
-    this.world.update(this.player.position.x, this.player.position.z);
+    // mientras se ve la pantalla de inicio, ya se va cargando). Primero lo
+    // que tiene adelante.
+    this.world.update(this.player.position.x, this.player.position.z, { yaw: this.player.yaw });
     // La hora corre mientras se juega. Con una partida corre siempre y con el
     // reloj real (también en el inicio y al volver de una pestaña oculta),
     // para que todos tengan la misma hora.

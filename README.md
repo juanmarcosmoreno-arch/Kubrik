@@ -26,7 +26,7 @@ El juego se construye por etapas. Siempre queda una versión jugable.
 | Extra | Multijugador: jugar en el mismo mundo desde otra computadora con un código | ✅ |
 | 5 | Guardado en IndexedDB y menú de mundos | ✅ |
 | 6 | Ciclo día/noche, oclusión ambiental, sonidos, opciones | ✅ |
-| 7 | Rendimiento: Web Workers, cola de chunks priorizada | ⏳ |
+| 7 | Rendimiento: Web Workers, cola de chunks priorizada | ✅ |
 
 ## Requisitos
 
@@ -76,7 +76,7 @@ Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
 | **Clic derecho** | Poner el bloque elegido en la cara apuntada |
 | **1 – 9** o **rueda del mouse** | Elegir casilla de la hotbar |
 | **V** | Cambiar la cámara: primera persona → tercera persona → de frente |
-| **F3** | Mostrar u ocultar coordenadas, chunk, hacia dónde se mira, la hora y más datos |
+| **F3** | Mostrar u ocultar coordenadas, chunk, hacia dónde se mira, la hora, el tiempo por cuadro y más datos |
 | **Esc** | Soltar el mouse y pausar (en la pausa: Opciones, Multijugador, Guardar y salir) |
 
 ### Física
@@ -142,7 +142,7 @@ El mundo es infinito y se genera a medida que te movés, en chunks de 16 × 16 b
 - **Agua:** el mar está a una altura fija (y = 40) y es semitransparente. Hay arena en costas y fondos poco profundos.
 - **Árboles:** se agrupan en bosques y también aparecen sueltos. Sus copas pasan de un chunk a otro sin cortarse.
 - **Minerales:** cobrizo, azurita y solarita aparecen en vetas dentro de la piedra. Cuanto más raro el mineral, más hondo.
-- **Carga de chunks:** se generan y mallan primero los más cercanos al jugador, con un tope de tiempo por frame para no trabar el juego. Los lejanos se liberan de la memoria.
+- **Carga de chunks:** se generan y mallan en segundo plano (ver [Rendimiento](#rendimiento)), primero los más cercanos al jugador y los que tiene adelante. Los lejanos se liberan de la memoria.
 - **Niebla:** tiene el color del horizonte (cambia con la hora) y tapa el borde del área cargada.
 
 ## Ambiente
@@ -151,6 +151,18 @@ El mundo es infinito y se genera a medida que te movés, en chunks de 16 × 16 b
 - **Oclusión ambiental:** cada esquina de cada cara se oscurece según cuántos bloques la rodean, así los rincones, la base de las paredes y los huecos quedan en penumbra y se lee mejor el volumen.
 - **Sonidos:** se generan con Web Audio, sin archivos. Hay pasos según lo que se pisa (pasto, tierra, piedra, madera, arena, hojas, vidrio), golpe al caer de alto, chapuzón y brazadas en el agua, y sonidos al romper y poner bloques. Cada vez suenan un poco distinto. En el multijugador también se oye lo que rompen o ponen los demás si están cerca. El sonido arranca con el primer clic o tecla (así lo exigen los navegadores).
 - **Opciones** (en la pausa): distancia de render (2 a 16 chunks), sensibilidad del mouse, campo de visión (60° a 100°) y volumen. Se aplican al momento y se recuerdan en el navegador. **Valores de fábrica** vuelve a los de siempre.
+
+## Rendimiento
+
+La meta es 60 cuadros por segundo a distancia 8 en una PC o Mac común.
+
+- **Web Workers:** la generación del terreno y el armado de las mallas corren en workers, fuera del hilo principal, así el juego no se traba mientras carga terreno. Se usan hasta 3, según los núcleos del procesador.
+- **Cola de prioridad:** lo que falta se encarga de lo más cercano a lo más lejano, y antes lo que el jugador tiene adelante que lo que tiene a la espalda. Cada worker que termina toma el siguiente trabajo sin esperar al próximo cuadro.
+- **Tope por cuadro:** las mallas listas se suman a la escena de a pocas por cuadro (como máximo 6 y 3 ms), porque cada una se sube a la placa de video al dibujarla.
+- **Cambios al instante:** el chunk que rompés o donde ponés un bloque se rearma en el mismo cuadro, en el hilo principal. Si un worker estaba armando una versión vieja de ese chunk, se descarta.
+- **Memoria:** las mallas que quedan lejos se liberan (geometría incluida) y los datos de los chunks se descartan un poco más lejos. Al cambiar de mundo se descarta lo que todavía estaba en camino.
+- **Sin workers:** si el navegador no los permite o fallan, el mundo se arma en el hilo principal con un tope de tiempo por cuadro. Es más lento, pero el juego sigue andando.
+- **F3** muestra cuánto dura cada cuadro (el promedio y el más lento del último medio segundo: un cuadro lento es un tirón aunque los FPS den bien) y cuántos trabajos tienen los workers. Los FPS se ven siempre, arriba a la izquierda.
 
 ## Personaje
 
@@ -175,8 +187,10 @@ src/
   world/
     blocks.js           → tipos de bloque y sus propiedades
     Chunk.js            → datos de un chunk de 16×128×16 (Uint8Array, 0 = aire)
-    World.js            → chunks alrededor del jugador (carga/descarga), get/set de bloques, mallas
-    Mesher.js           → una malla por chunk con solo las caras visibles y oclusión por vértice (sin DOM, apto para workers)
+    World.js            → chunks alrededor del jugador (carga/descarga, cola de prioridad), get/set de bloques, mallas
+    ChunkWorkers.js     → grupo de Web Workers: reparte los trabajos y avisa cuando terminan
+    chunkWorker.js      → el worker: genera chunks y arma sus mallas
+    Mesher.js           → una malla por chunk con solo las caras visibles y oclusión por vértice (sin DOM: corre en los workers)
     TerrainGen.js       → terreno procedural con semilla: alturas, capas, agua, árboles y minerales
   player/
     Player.js           → posición, orientación, física (colisiones AABB, salto, nado, vuelo)

@@ -28,8 +28,21 @@ export class Chunk {
     this.maxY = maxY;
     // true cuando los bloques cambiaron y hay que rearmar la malla.
     this.dirty = true;
+    // Versión de lo que define la malla (sube con cada cambio del chunk o de
+    // un vecino que lo toca) y versión de la malla que se ve (-1: ninguna).
+    // Con eso se descartan las mallas armadas en un worker con datos viejos.
+    this.version = 0;
+    this.meshVersion = -1;
+    // true mientras un worker le arma la malla.
+    this.meshing = false;
     // Malla de Three.js del chunk (la administra World) o null.
     this.mesh = null;
+  }
+
+  /** Marca que la malla quedó vieja (cambió el chunk o un vecino). */
+  touch() {
+    this.version++;
+    this.dirty = true;
   }
 
   /** Índice lineal dentro de `data` para coordenadas locales. */
@@ -57,7 +70,7 @@ export class Chunk {
     if (this.data[i] === id) return false;
     this.data[i] = id;
     if (id !== BLOCK.AIR && y > this.maxY) this.maxY = y;
-    this.dirty = true;
+    this.touch();
     return true;
   }
 

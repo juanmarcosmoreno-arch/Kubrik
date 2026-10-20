@@ -1,14 +1,20 @@
 // Gestión del mundo: chunks cargados alrededor del jugador, lectura y
 // escritura de bloques en coordenadas globales y mallas de cada chunk.
 //
-// El mundo es "infinito": cada frame se generan y mallan los chunks que
-// faltan cerca del jugador (los más cercanos primero, con un tope de tiempo
-// por frame para no trabar el juego) y se liberan los que quedaron lejos.
+// El mundo es "infinito": cada frame se encargan a los Web Workers los
+// chunks que faltan generar o mallar cerca del jugador, por prioridad (lo
+// más cercano primero, y antes lo que tiene adelante que lo que tiene a la
+// espalda), y se liberan los que quedaron lejos. Las mallas listas se suman
+// a la escena con un tope por frame, para no trabar el dibujo.
+//
+// Sin workers (o si fallan), todo se hace en el hilo principal con un tope
+// de tiempo por frame. El chunk que cambia un jugador se rearma siempre al
+// instante en el hilo principal, para que se vea en el mismo frame.
 
 import * as THREE from 'three';
 import { BLOCK, BLOCKS, getBlock } from './blocks.js';
 import { CHUNK_HEIGHT, CHUNK_SIZE, Chunk } from './Chunk.js';
-import { WATER_SURFACE, buildChunkMesh } from './Mesher.js';
+import { WATER_SURFACE, buildChunkMesh, padChunk } from './Mesher.js';
 
 /** Clave de un chunk en el Map: "cx,cz". */
 export function chunkKey(cx, cz) {
@@ -33,18 +39,39 @@ const NEIGHBORHOOD = [
 /** ¿Es un ID de bloque que existe? */
 const isKnownBlock = (id) => Boolean(BLOCKS[id]);
 
-/** Tiempo máximo por frame (ms) para generar y mallar chunks. */
+/** Tiempo máximo por frame (ms) para generar y mallar chunks sin workers. */
 const DEFAULT_BUDGET_MS = 6;
+
+/**
+ * Mallas nuevas que se suman a la escena por frame (cada una se sube a la
+ * placa de video al dibujarla) y tiempo máximo (ms) para armarlas.
+ */
+const MAX_NEW_MESHES_PER_FRAME = 6;
+const NEW_MESHES_BUDGET_MS = 3;
 
 export class World {
   /**
    * @param {THREE.Material[]} materials materiales indexados por LAYER
    * @param {import('./TerrainGen.js').TerrainGenerator} generator
-   * @param {{renderDistance?: number}} [options]
+   * @param {{renderDistance?: number,
+   *   workers?: import('./ChunkWorkers.js').ChunkWorkers | null}} [options]
    */
-  constructor(materials, generator, { renderDistance = 6 } = {}) {
+  constructor(materials, generator, { renderDistance = 6, workers = null } = {}) {
     this.materials = materials;
     this.generator = generator;
+    /** Workers para generar y mallar (compartidos entre mundos) o null. */
+    this.workers = workers;
+    /** Claves de los chunks que se están generando en un worker. */
+    this._generating = new Set();
+    /** Mallas armadas en un worker que esperan su turno para sumarse a la escena. */
+    this._readyMeshes = [];
+    /**
+     * Cola de prioridad: lo que falta generar o mallar, de lo más urgente a
+     * lo menos. Se rearma en cada frame y, entre frame y frame, cada worker
+     * que termina toma el siguiente trabajo (así no esperan al próximo frame).
+     */
+    this._queue = [];
+    this._disposed = false;
     /** @type {Map<string, Chunk>} */
     this.chunks = new Map();
     // Grupo que contiene todas las mallas de chunks (se agrega a la escena).
@@ -79,6 +106,11 @@ export class World {
     // Un chunk se malla cuando están sus 8 vecinos (también en diagonal, por
     // la oclusión de las esquinas): se cargan datos hasta 1,5 chunks más allá.
     const load = this.renderDistance + 1.5;
+    // Más allá de esto se liberan mallas y datos (ver _unloadFar).
+    this.meshLimit = this.renderDistance + 1.5;
+    // Los datos duran más que las mallas (+ √2): un chunk con malla siempre
+    // tiene cargados sus 8 vecinos (de ellos depende la oclusión de sus bordes).
+    this.dataLimit = this.renderDistance + 3;
     // Desplazamientos (en chunks) dentro del radio de carga, del más cercano
     // al más lejano: ese es el orden de prioridad.
     this._offsets = [];
@@ -174,8 +206,7 @@ export class World {
   }
 
   markDirty(cx, cz) {
-    const chunk = this.getChunk(cx, cz);
-    if (chunk) chunk.dirty = true;
+    this.getChunk(cx, cz)?.touch();
   }
 
   /**
@@ -305,9 +336,14 @@ export class World {
     }
   }
 
-  /** Genera los datos de un chunk y le aplica los cambios de los jugadores. */
+  /** Genera (en este hilo) los datos de un chunk. */
   _generate(cx, cz) {
-    const { data, maxY: generatedMaxY } = this.generator.generateChunk(cx, cz);
+    const { data, maxY } = this.generator.generateChunk(cx, cz);
+    return this._addChunk(cx, cz, data, maxY);
+  }
+
+  /** Suma un chunk recién generado, con los cambios de los jugadores aplicados. */
+  _addChunk(cx, cz, data, generatedMaxY) {
     let maxY = generatedMaxY;
     const chunkEdits = this.edits.get(chunkKey(cx, cz));
     if (chunkEdits) {
@@ -329,11 +365,10 @@ export class World {
     return true;
   }
 
-  /** Rearma la malla de un chunk (reemplaza y libera la anterior). */
-  rebuildChunk(chunk) {
-    const { cx, cz } = chunk;
+  /** Datos de los 8 vecinos de un chunk, como los pide el mesher. */
+  _neighborData(cx, cz) {
     const data = (dx, dz) => this.getChunk(cx + dx, cz + dz)?.data;
-    const neighbors = {
+    return {
       nx: data(-1, 0),
       px: data(1, 0),
       nz: data(0, -1),
@@ -343,10 +378,27 @@ export class World {
       nxpz: data(-1, 1),
       pxpz: data(1, 1),
     };
-    const d = buildChunkMesh(chunk.data, neighbors, chunk.maxY);
-    this.disposeChunkMesh(chunk);
+  }
+
+  /** Rearma ya mismo (en este hilo) la malla de un chunk. */
+  rebuildChunk(chunk) {
+    const d = buildChunkMesh(chunk.data, this._neighborData(chunk.cx, chunk.cz), chunk.maxY);
     chunk.dirty = false;
+    this._setMesh(chunk, d, chunk.version);
+  }
+
+  /**
+   * Le pone a un chunk la malla armada con `d` (reemplaza y libera la
+   * anterior). `version`: la del chunk con la que se armó.
+   * @param {Chunk} chunk
+   * @param {import('./Mesher.js').ChunkMeshData | null} d
+   * @param {number} version
+   */
+  _setMesh(chunk, d, version) {
+    this.disposeChunkMesh(chunk);
+    chunk.meshVersion = version;
     if (!d) return;
+    const { cx, cz } = chunk;
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
@@ -355,7 +407,13 @@ export class World {
     geometry.setAttribute('color', new THREE.BufferAttribute(d.colors, 3));
     geometry.setIndex(new THREE.BufferAttribute(d.indices, 1));
     for (const g of d.groups) geometry.addGroup(g.start, g.count, g.materialIndex);
-    geometry.computeBoundingSphere();
+    // La caja del chunk (de la cara más baja a la más alta), sin recorrer
+    // los vértices: con ella Three.js saltea los chunks que no están a la vista.
+    geometry.boundingBox = new THREE.Box3(
+      new THREE.Vector3(0, d.minY, 0),
+      new THREE.Vector3(CHUNK_SIZE, d.maxY, CHUNK_SIZE),
+    );
+    geometry.boundingSphere = geometry.boundingBox.getBoundingSphere(new THREE.Sphere());
 
     // Una sola malla por chunk; cada grupo usa el material de su capa
     // (Three.js dibuja lo translúcido después de lo opaco).
@@ -369,19 +427,28 @@ export class World {
   }
 
   /**
-   * Genera y malla lo que falta alrededor de una posición, de lo más cercano
-   * a lo más lejano, sin pasarse del tiempo disponible en este frame.
+   * Genera y malla lo que falta alrededor de una posición. Con workers,
+   * encarga los trabajos por prioridad y suma a la escena las mallas listas;
+   * sin workers, lo hace acá, de lo más cercano a lo más lejano, sin pasarse
+   * del tiempo disponible en este frame.
    * @param {number} x posición del jugador (bloques)
    * @param {number} z
-   * @param {number} [budgetMs] tiempo máximo a usar (siempre hace al menos 1 tarea)
-   * @returns {number} cantidad de chunks generados o mallados
+   * @param {{yaw?: number, budgetMs?: number}} [o] hacia dónde mira el
+   *   jugador (prioriza lo de adelante) y tiempo máximo sin workers
+   * @returns {number} cantidad de chunks generados, mallados o encargados
    */
-  update(x, z, budgetMs = DEFAULT_BUDGET_MS) {
+  update(x, z, { yaw, budgetMs = DEFAULT_BUDGET_MS } = {}) {
     const cx = toChunkCoord(Math.floor(x));
     const cz = toChunkCoord(Math.floor(z));
     if (!this._center || this._center.cx !== cx || this._center.cz !== cz) {
       this._center = { cx, cz };
       this._unloadFar();
+    }
+
+    if (this.workers && !this.workers.broken) {
+      this._addReadyMeshes();
+      this._buildQueue(x, z, yaw);
+      return this._pump();
     }
 
     const start = performance.now();
@@ -399,7 +466,123 @@ export class World {
         done++;
       }
     }
+    // Lo que quedó armado en los workers antes de que fallaran.
+    this._addReadyMeshes();
     return done;
+  }
+
+  /**
+   * Arma la cola de prioridad con lo que falta generar o mallar. La
+   * prioridad es la distancia, multiplicada por hasta 2 para lo que queda a
+   * la espalda del jugador: se completa primero lo que se ve.
+   */
+  _buildQueue(x, z, yaw) {
+    const { cx, cz } = this._center;
+    const fx = yaw === undefined ? 0 : -Math.sin(yaw);
+    const fz = yaw === undefined ? 0 : -Math.cos(yaw);
+    const queue = this._queue;
+    queue.length = 0;
+    for (const o of this._offsets) {
+      const ccx = cx + o.dx;
+      const ccz = cz + o.dz;
+      const chunk = this.getChunk(ccx, ccz);
+      if (chunk) {
+        if (!chunk.dirty || chunk.meshing || o.d > this.renderDistance) continue;
+        if (!this._neighborsReady(ccx, ccz)) continue;
+      } else if (this._generating.has(chunkKey(ccx, ccz))) {
+        continue;
+      }
+      // Del jugador al centro del chunk.
+      const vx = ccx * CHUNK_SIZE + CHUNK_SIZE / 2 - x;
+      const vz = ccz * CHUNK_SIZE + CHUNK_SIZE / 2 - z;
+      const dist = Math.hypot(vx, vz);
+      const ahead = dist > 0 ? (vx * fx + vz * fz) / dist : 1;
+      queue.push({ cx: ccx, cz: ccz, mesh: Boolean(chunk), score: dist * (1.5 - 0.5 * ahead) });
+    }
+    // De mayor a menor: se toma desde el final (pop).
+    queue.sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * Encarga trabajos de la cola mientras los workers tengan lugar. Cada uno
+   * se revisa antes, porque la cola puede haber quedado vieja.
+   * @returns {number} trabajos encargados
+   */
+  _pump() {
+    if (this._disposed || !this.workers || this.workers.broken) return 0;
+    let started = 0;
+    while (this.workers.free > 0 && this._queue.length) {
+      const { cx, cz, mesh } = this._queue.pop();
+      const chunk = this.getChunk(cx, cz);
+      if (mesh) {
+        if (!chunk?.dirty || chunk.meshing || !this._neighborsReady(cx, cz)) continue;
+        this._meshInWorker(chunk);
+      } else {
+        if (chunk || this._generating.has(chunkKey(cx, cz))) continue;
+        this._generateInWorker(cx, cz);
+      }
+      started++;
+    }
+    return started;
+  }
+
+  /** Encarga a un worker generar un chunk. */
+  _generateInWorker(cx, cz) {
+    const key = chunkKey(cx, cz);
+    this._generating.add(key);
+    this.workers.run({ type: 'generate', seed: this.generator.seed, cx, cz }, [], (result) => {
+      this._generating.delete(key);
+      if (!result || this._disposed) return;
+      this._pump(); // el worker quedó libre: el siguiente de la cola
+      if (this.chunks.has(key)) return; // ya se generó en este hilo
+      // Si el jugador ya se alejó, no hace falta.
+      const c = this._center;
+      if (c && Math.hypot(cx - c.cx, cz - c.cz) > this.dataLimit) return;
+      this._addChunk(cx, cz, result.data, result.maxY);
+    });
+  }
+
+  /** Encarga a un worker la malla de un chunk (el hilo principal arma la copia con borde). */
+  _meshInWorker(chunk) {
+    const padded = padChunk(chunk.data, this._neighborData(chunk.cx, chunk.cz), this.workers.takeBuffer());
+    const version = chunk.version;
+    chunk.dirty = false;
+    chunk.meshing = true;
+    this.workers.run({ type: 'mesh', padded, maxY: chunk.maxY }, [padded.buffer], (result) => {
+      chunk.meshing = false;
+      if (!result) {
+        chunk.dirty = true; // se rearma de otra forma
+        return;
+      }
+      this.workers.giveBuffer(result.padded);
+      if (this._disposed) return;
+      this._pump();
+      if (this.getChunk(chunk.cx, chunk.cz) !== chunk) return; // se descargó
+      this._readyMeshes.push({ chunk, version, mesh: result.mesh });
+    });
+  }
+
+  /**
+   * Suma a la escena las mallas armadas en los workers, con un tope por
+   * frame. Descarta las que llegaron tarde: el chunk se descargó, ya tiene
+   * una malla más nueva (se rearmó en este hilo por un cambio) o el jugador
+   * se alejó.
+   */
+  _addReadyMeshes() {
+    const start = performance.now();
+    let added = 0;
+    while (this._readyMeshes.length && added < MAX_NEW_MESHES_PER_FRAME) {
+      if (added > 0 && performance.now() - start > NEW_MESHES_BUDGET_MS) break;
+      const { chunk, version, mesh } = this._readyMeshes.shift();
+      if (this.getChunk(chunk.cx, chunk.cz) !== chunk || version <= chunk.meshVersion) continue;
+      const c = this._center;
+      if (c && Math.hypot(chunk.cx - c.cx, chunk.cz - c.cz) > this.meshLimit) {
+        chunk.dirty = true; // se malla de nuevo si vuelve a acercarse
+        continue;
+      }
+      this._setMesh(chunk, mesh, version);
+      added++;
+    }
   }
 
   /**
@@ -424,20 +607,16 @@ export class World {
 
   /**
    * Libera lo que quedó lejos: primero la malla (a más de render + 1.5
-   * chunks) y después los datos (a más de render + 2.5). El margen evita
+   * chunks) y después los datos (a más de render + 3). El margen evita
    * cargar y descargar el mismo chunk al ir y venir por un borde.
    */
   _unloadFar() {
     const { cx, cz } = this._center;
-    const meshLimit = this.renderDistance + 1.5;
-    // Los datos duran más que las mallas (+ √2): un chunk con malla siempre
-    // tiene cargados sus 8 vecinos (de ellos depende la oclusión de sus bordes).
-    const dataLimit = this.renderDistance + 3;
     for (const chunk of [...this.chunks.values()]) {
       const d = Math.hypot(chunk.cx - cx, chunk.cz - cz);
-      if (d > dataLimit) {
+      if (d > this.dataLimit) {
         this.removeChunk(chunk.cx, chunk.cz);
-      } else if (d > meshLimit && chunk.mesh) {
+      } else if (d > this.meshLimit && chunk.mesh) {
         this.disposeChunkMesh(chunk);
         chunk.dirty = true; // al volver a acercarse se malla de nuevo
       }
@@ -446,6 +625,7 @@ export class World {
 
   /** Saca de la escena y libera la memoria de la malla de un chunk. */
   disposeChunkMesh(chunk) {
+    chunk.meshVersion = -1;
     if (!chunk.mesh) return;
     this.group.remove(chunk.mesh);
     chunk.mesh.geometry.dispose();
@@ -461,16 +641,31 @@ export class World {
     this.chunks.delete(key);
   }
 
-  /** Cantidad de chunks con datos y con malla (para depurar). */
+  /**
+   * Para depurar: chunks con datos y con malla, trabajos en los workers y
+   * mallas esperando para sumarse a la escena.
+   */
   get stats() {
     let meshed = 0;
-    for (const c of this.chunks.values()) if (c.mesh) meshed++;
-    return { loaded: this.chunks.size, meshed };
+    let meshing = 0;
+    for (const c of this.chunks.values()) {
+      if (c.mesh) meshed++;
+      if (c.meshing) meshing++;
+    }
+    return {
+      loaded: this.chunks.size,
+      meshed,
+      working: this._generating.size + meshing,
+      waiting: this._readyMeshes.length,
+    };
   }
 
-  /** Libera todo el mundo. */
+  /** Libera todo el mundo (lo que vuelva de los workers se descarta). */
   dispose() {
+    this._disposed = true;
     for (const chunk of this.chunks.values()) this.disposeChunkMesh(chunk);
     this.chunks.clear();
+    this._readyMeshes.length = 0;
+    this._queue.length = 0;
   }
 }
