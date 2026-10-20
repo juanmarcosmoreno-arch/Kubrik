@@ -623,7 +623,7 @@ class Game {
       `Semilla: ${this.options.seedText}`,
       `Chunks: ${meshed} visibles, ${loaded} en memoria  ·  distancia ${this.world.renderDistance}`,
       this.chunkWorkers && !this.chunkWorkers.broken
-        ? `Workers: ${this.chunkWorkers.workers.length}  ·  ${working} trabajando, ${waiting} esperando`
+        ? `Workers: ${this.chunkWorkers.workers.length}  ·  ${working} trabajando, ${waiting} mallas por sumar`
         : 'Workers: no (el mundo se arma en el hilo principal)',
       `Frame: ${this.frameTimes.ms.toFixed(1)} ms promedio, el más lento ${this.frameTimes.worst.toFixed(1)} ms`,
     ]);

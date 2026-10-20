@@ -157,12 +157,12 @@ El mundo es infinito y se genera a medida que te movés, en chunks de 16 × 16 b
 La meta es 60 cuadros por segundo a distancia 8 en una PC o Mac común.
 
 - **Web Workers:** la generación del terreno y el armado de las mallas corren en workers, fuera del hilo principal, así el juego no se traba mientras carga terreno. Se usan hasta 3, según los núcleos del procesador.
-- **Cola de prioridad:** lo que falta se encarga de lo más cercano a lo más lejano, y antes lo que el jugador tiene adelante que lo que tiene a la espalda. Cada worker que termina toma el siguiente trabajo sin esperar al próximo cuadro.
+- **Cola de prioridad:** lo que falta se encarga de lo más cercano a lo más lejano, y antes lo que el jugador tiene adelante que lo que tiene a la espalda. Cada worker que termina toma el siguiente trabajo sin esperar al próximo cuadro, y las mallas listas también se suman en ese orden (si te das vuelta, se reordenan).
 - **Tope por cuadro:** las mallas listas se suman a la escena de a pocas por cuadro (como máximo 6 y 3 ms), porque cada una se sube a la placa de video al dibujarla.
 - **Cambios al instante:** el chunk que rompés o donde ponés un bloque se rearma en el mismo cuadro, en el hilo principal. Si un worker estaba armando una versión vieja de ese chunk, se descarta.
 - **Memoria:** las mallas que quedan lejos se liberan (geometría incluida) y los datos de los chunks se descartan un poco más lejos. Al cambiar de mundo se descarta lo que todavía estaba en camino.
 - **Sin workers:** si el navegador no los permite o fallan, el mundo se arma en el hilo principal con un tope de tiempo por cuadro. Es más lento, pero el juego sigue andando.
-- **F3** muestra cuánto dura cada cuadro (el promedio y el más lento del último medio segundo: un cuadro lento es un tirón aunque los FPS den bien) y cuántos trabajos tienen los workers. Los FPS se ven siempre, arriba a la izquierda.
+- **F3** muestra cuánto dura cada cuadro (el promedio y el más lento del último medio segundo: un cuadro lento es un tirón aunque los FPS den bien), cuántos trabajos tienen los workers y cuántas mallas listas esperan para sumarse a la escena. Los FPS se ven siempre, arriba a la izquierda.
 
 ## Personaje
 

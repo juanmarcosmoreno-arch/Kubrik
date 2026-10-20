@@ -49,6 +49,24 @@ const DEFAULT_BUDGET_MS = 6;
 const MAX_NEW_MESHES_PER_FRAME = 6;
 const NEW_MESHES_BUDGET_MS = 3;
 
+/** Hacia dónde mira el jugador en el plano (x, z); [0, 0] si no se sabe. */
+function forward(yaw) {
+  return yaw === undefined ? [0, 0] : [-Math.sin(yaw), -Math.cos(yaw)];
+}
+
+/**
+ * Prioridad de un chunk (menor = antes): la distancia del jugador a su
+ * centro, multiplicada por hasta 2 si queda a la espalda. Así se completa
+ * primero lo que se ve.
+ */
+function priority(cx, cz, x, z, fx, fz) {
+  const vx = cx * CHUNK_SIZE + CHUNK_SIZE / 2 - x;
+  const vz = cz * CHUNK_SIZE + CHUNK_SIZE / 2 - z;
+  const dist = Math.hypot(vx, vz);
+  const ahead = dist > 0 ? (vx * fx + vz * fz) / dist : 1;
+  return dist * (1.5 - 0.5 * ahead);
+}
+
 export class World {
   /**
    * @param {THREE.Material[]} materials materiales indexados por LAYER
@@ -354,6 +372,12 @@ export class World {
     }
     const chunk = new Chunk(cx, cz, data, maxY);
     this.chunks.set(chunkKey(cx, cz), chunk);
+    // Una malla de un vecino que esté en camino se armó sin este chunk (o con
+    // una copia vieja): que se rehaga. Jugando normal no cuesta nada, porque
+    // esos vecinos todavía no tienen malla.
+    for (const [dx, dz] of NEIGHBORHOOD) {
+      if (dx || dz) this.markDirty(cx + dx, cz + dz);
+    }
     return chunk;
   }
 
@@ -446,7 +470,7 @@ export class World {
     }
 
     if (this.workers && !this.workers.broken) {
-      this._addReadyMeshes();
+      this._addReadyMeshes(x, z, yaw);
       this._buildQueue(x, z, yaw);
       return this._pump();
     }
@@ -472,14 +496,12 @@ export class World {
   }
 
   /**
-   * Arma la cola de prioridad con lo que falta generar o mallar. La
-   * prioridad es la distancia, multiplicada por hasta 2 para lo que queda a
-   * la espalda del jugador: se completa primero lo que se ve.
+   * Arma la cola de prioridad (ver priority) con lo que falta generar o
+   * mallar: se completa primero lo que se ve.
    */
   _buildQueue(x, z, yaw) {
     const { cx, cz } = this._center;
-    const fx = yaw === undefined ? 0 : -Math.sin(yaw);
-    const fz = yaw === undefined ? 0 : -Math.cos(yaw);
+    const [fx, fz] = forward(yaw);
     const queue = this._queue;
     queue.length = 0;
     for (const o of this._offsets) {
@@ -492,12 +514,7 @@ export class World {
       } else if (this._generating.has(chunkKey(ccx, ccz))) {
         continue;
       }
-      // Del jugador al centro del chunk.
-      const vx = ccx * CHUNK_SIZE + CHUNK_SIZE / 2 - x;
-      const vz = ccz * CHUNK_SIZE + CHUNK_SIZE / 2 - z;
-      const dist = Math.hypot(vx, vz);
-      const ahead = dist > 0 ? (vx * fx + vz * fz) / dist : 1;
-      queue.push({ cx: ccx, cz: ccz, mesh: Boolean(chunk), score: dist * (1.5 - 0.5 * ahead) });
+      queue.push({ cx: ccx, cz: ccz, mesh: Boolean(chunk), score: priority(ccx, ccz, x, z, fx, fz) });
     }
     // De mayor a menor: se toma desde el final (pop).
     queue.sort((a, b) => b.score - a.score);
@@ -564,11 +581,18 @@ export class World {
 
   /**
    * Suma a la escena las mallas armadas en los workers, con un tope por
-   * frame. Descarta las que llegaron tarde: el chunk se descargó, ya tiene
-   * una malla más nueva (se rearmó en este hilo por un cambio) o el jugador
-   * se alejó.
+   * frame. Con la posición, van primero las de adelante (si el jugador se
+   * dio vuelta mientras esperaban, se reordenan). Descarta las que llegaron
+   * tarde: el chunk se descargó, ya tiene una malla más nueva (se rearmó en
+   * este hilo por un cambio) o el jugador se alejó.
    */
-  _addReadyMeshes() {
+  _addReadyMeshes(x, z, yaw) {
+    const ready = this._readyMeshes;
+    if (x !== undefined && ready.length > 1) {
+      const [fx, fz] = forward(yaw);
+      for (const r of ready) r.score = priority(r.chunk.cx, r.chunk.cz, x, z, fx, fz);
+      ready.sort((a, b) => a.score - b.score);
+    }
     const start = performance.now();
     let added = 0;
     while (this._readyMeshes.length && added < MAX_NEW_MESHES_PER_FRAME) {
