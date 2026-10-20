@@ -270,7 +270,7 @@ body {
   width: auto;
   height: auto;
   max-width: min(600px, 52vw);
-  max-height: calc(100vh - 250px);
+  max-height: calc(100vh - 320px);
   min-height: 160px;
   object-fit: contain;
   -webkit-user-drag: none;
@@ -421,11 +421,36 @@ kbd {
 
 /* ---------- Botones secundarios ---------- */
 
+/* Inicio: "Jugar" o "Continuar" grande y, debajo, el resto. */
 .title-actions {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.title-world {
+  margin: -2px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.title-more {
+  display: flex;
+  gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
+}
+
+.btn-medium {
+  padding: 11px 20px;
+  font-size: 14px;
+}
+
+.btn-danger {
+  color: #fff;
+  background: #a8322a;
+  box-shadow: inset 0 -4px 0 #6f1f1a;
 }
 
 .btn-secondary {
@@ -452,9 +477,9 @@ kbd {
   filter: brightness(0.7);
 }
 
-/* ---------- Multijugador ---------- */
+/* ---------- Paneles (mundos y multijugador) ---------- */
 
-.mp-panel {
+.overlay {
   z-index: 5; /* también sobre la pausa */
   justify-content: center;
   padding: 16px;
@@ -463,17 +488,17 @@ kbd {
   overflow-y: auto;
 }
 
-.mp-card {
+.dialog {
   width: min(720px, 100%);
   align-items: stretch;
   text-align: left;
 }
 
-.mp-card h2 {
+.dialog h2 {
   text-align: center;
 }
 
-.mp-card > .hint {
+.dialog > .hint {
   text-align: center;
 }
 
@@ -485,7 +510,7 @@ kbd {
   color: var(--muted);
 }
 
-.mp-card input {
+.dialog input {
   font: 600 16px/1.2 var(--font-ui);
   padding: 10px 12px;
   border-radius: 6px;
@@ -495,11 +520,11 @@ kbd {
   outline: none;
 }
 
-.mp-card input:focus {
+.dialog input:focus {
   border-color: var(--lime);
 }
 
-.mp-card input:disabled {
+.dialog input:disabled {
   opacity: 0.6;
 }
 
@@ -559,7 +584,7 @@ kbd {
   -webkit-user-select: all;
 }
 
-.mp-actions {
+.dialog-actions {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
@@ -568,6 +593,67 @@ kbd {
 
 .msg.ok {
   color: var(--lime);
+}
+
+.dialog-narrow {
+  width: min(460px, 100%);
+}
+
+/* Lista de mundos guardados. */
+.worlds-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  list-style: none;
+}
+
+.world-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(240, 234, 228, 0.1);
+}
+
+.world-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.world-info strong {
+  font: 800 16px/1.2 var(--font-ui);
+  color: var(--cream);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.world-info span {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worlds-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.save-status {
+  font-size: 12px;
+  opacity: 0.85;
 }
 
 .mp-pause {

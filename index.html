@@ -26,7 +26,12 @@
           <p class="tagline">Construí tu mundo, bloque a bloque</p>
           <div class="title-actions">
             <button id="btn-play" class="btn btn-primary" type="button">Jugar</button>
-            <button id="btn-multiplayer" class="btn btn-secondary" type="button">Multijugador</button>
+            <p id="title-world" class="title-world" hidden></p>
+            <div class="title-more">
+              <button id="btn-new-world" class="btn btn-secondary btn-medium" type="button">Nuevo mundo</button>
+              <button id="btn-worlds" class="btn btn-secondary btn-medium" type="button" hidden>Mis mundos</button>
+              <button id="btn-multiplayer" class="btn btn-secondary btn-medium" type="button">Multijugador</button>
+            </div>
           </div>
           <p id="title-msg" class="msg" role="status"></p>
           <p id="device-note" class="note" hidden>Megabrick se juega en PC o Mac, con teclado y mouse.</p>
@@ -51,9 +56,41 @@
       </div>
     </div>
 
+    <!-- Nuevo mundo (sobre la pantalla de inicio) -->
+    <div id="new-world-panel" class="screen overlay" hidden role="dialog" aria-labelledby="nw-title" aria-modal="true">
+      <div class="panel dialog dialog-narrow">
+        <h2 id="nw-title">Nuevo mundo</h2>
+        <label class="field">
+          <span>Nombre</span>
+          <input id="nw-name" type="text" autocomplete="off" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span>Semilla (opcional)</span>
+          <input id="nw-seed" type="text" maxlength="64" placeholder="Al azar" autocomplete="off" spellcheck="false" />
+        </label>
+        <p class="hint">La misma semilla arma siempre el mismo terreno. Vacía, sale una al azar.</p>
+        <div class="dialog-actions">
+          <button id="nw-create" class="btn btn-primary" type="button">Crear mundo</button>
+          <button id="nw-back" class="btn btn-ghost" type="button">Volver</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mundos guardados (sobre la pantalla de inicio) -->
+    <div id="worlds-panel" class="screen overlay" hidden role="dialog" aria-labelledby="worlds-title" aria-modal="true">
+      <div class="panel dialog">
+        <h2 id="worlds-title">Mis mundos</h2>
+        <ul id="worlds-list" class="worlds-list"></ul>
+        <p id="worlds-msg" class="msg" role="status"></p>
+        <div class="dialog-actions">
+          <button id="worlds-back" class="btn btn-ghost" type="button">Volver</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Panel de multijugador (sobre la pantalla de inicio o la pausa) -->
-    <div id="mp-panel" class="screen mp-panel" hidden role="dialog" aria-labelledby="mp-title" aria-modal="true">
-      <div class="panel mp-card">
+    <div id="mp-panel" class="screen overlay" hidden role="dialog" aria-labelledby="mp-title" aria-modal="true">
+      <div class="panel dialog">
         <h2 id="mp-title">Multijugador</h2>
         <p class="hint">Jugá en el mismo mundo con amigos desde otras computadoras.</p>
         <label class="field">
@@ -78,7 +115,7 @@
           </section>
         </div>
         <p id="mp-status" class="msg" role="status"></p>
-        <div class="mp-actions">
+        <div class="dialog-actions">
           <button id="mp-play" class="btn btn-primary" type="button" hidden>Jugar</button>
           <button id="mp-leave" class="btn btn-ghost" type="button" hidden>Salir de la partida</button>
           <button id="mp-back" class="btn btn-ghost" type="button">Volver</button>
@@ -92,11 +129,13 @@
         <h2>Pausa</h2>
         <button id="btn-resume" class="btn btn-primary" type="button">Continuar</button>
         <button id="btn-pause-mp" class="btn btn-secondary" type="button">Multijugador</button>
+        <button id="btn-save-exit" class="btn btn-ghost" type="button">Guardar y salir</button>
         <div id="mp-pause" class="mp-pause" hidden>
           <span>Partida <strong id="mp-pause-code"></strong> · <span id="mp-pause-count"></span></span>
           <button id="mp-pause-copy" class="btn btn-small" type="button">Copiar código</button>
         </div>
         <p class="hint">También podés hacer clic en cualquier parte de la pantalla.</p>
+        <p id="save-status" class="hint save-status" role="status"></p>
         <p id="pause-msg" class="msg" role="status"></p>
       </div>
     </div>

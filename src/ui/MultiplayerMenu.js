@@ -27,6 +27,8 @@ export class MultiplayerMenu {
   constructor(mp, { onPlay, hudRoot, onPauseMessage }) {
     this.mp = mp;
     this.onPauseMessage = onPauseMessage;
+    /** Antes de unirse: () => boolean (false cancela). */
+    this.onBeforeJoin = null;
     const $ = (id) => document.getElementById(id);
     this.panel = $('mp-panel');
     this.nameInput = $('mp-name');
@@ -143,15 +145,9 @@ export class MultiplayerMenu {
       this.codeInput.focus();
       return;
     }
-    // Al unirse se juega en el mundo de quien creó la partida: lo construido
-    // en el mundo actual se pierde (todavía no hay guardado).
-    const world = this.mp.game.world;
-    if (
-      world.edits.size > 0 &&
-      !window.confirm('Vas a jugar en el mundo de quien creó la partida y lo que construiste en este mundo se pierde. ¿Seguir?')
-    ) {
-      return;
-    }
+    // Al unirse se juega en el mundo de quien creó la partida (el juego
+    // puede preguntar antes, si el mundo propio no se puede guardar).
+    if (this.onBeforeJoin && !this.onBeforeJoin()) return;
     const name = this._name();
     try {
       const done = this.mp.join(code, name);

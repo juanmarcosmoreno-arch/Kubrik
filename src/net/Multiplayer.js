@@ -192,8 +192,12 @@ export class Multiplayer {
     pending.session?.close();
   }
 
-  /** Sale de la partida (cierra conexiones y saca a los demás jugadores). */
+  /**
+   * Sale de la partida (cierra conexiones y saca a los demás jugadores). Un
+   * invitado sigue en el mismo mundo, que pasa a ser suyo (y se guarda).
+   */
   leave() {
+    const wasGuest = this.role === 'guest';
     this.cancel();
     this.game.world.editListeners.delete(this._editListener);
     for (const id of [...this.players.keys()]) this._removePlayer(id, false);
@@ -202,6 +206,7 @@ export class Multiplayer {
     this.role = null;
     this.code = null;
     this._byPeer.clear();
+    if (wasGuest) this.game.saves.adopt();
     this.onChange?.();
   }
 
@@ -497,7 +502,9 @@ export class Multiplayer {
       pending.reject(new Error('Esa partida usa otra versión de Megabrick.'));
       return;
     }
-    // El mundo del anfitrión: misma semilla y sus cambios.
+    // El mundo del anfitrión: misma semilla y sus cambios. Es suyo: acá no
+    // se guarda (salvo que después se siga jugando solo en él).
+    const host = cleanPlayerInfo(msg.host);
     const hostPos = cleanPosition(msg.spawn);
     const others = Array.isArray(msg.players) ? msg.players.slice(0, MAX_PLAYERS - 2) : [];
     this.game.loadWorld({
@@ -505,12 +512,12 @@ export class Multiplayer {
       seedText: typeof msg.seedText === 'string' ? msg.seedText.slice(0, 64) : String(msg.seed),
       edits: msg.edits,
       spawn: hostPos,
+      save: { foreign: true, name: `Mundo de ${host?.name ?? 'otro'}` },
     });
     if (hostPos) this._placeBeside(hostPos, others.map(cleanPosition).filter(Boolean));
     this.role = 'guest';
     this.code = this._joinCode;
     this.attachWorld(this.game.world);
-    const host = cleanPlayerInfo(msg.host);
     if (host) this._addPlayer(host);
     // Como mucho, los que entran en una partida (sin contar al anfitrión ni a uno mismo).
     for (const p of others) {

@@ -24,7 +24,7 @@ El juego se construye por etapas. Siempre queda una versión jugable.
 | 3 | Física del jugador: gravedad, salto, colisiones, nado | ✅ |
 | 4 | Romper y poner bloques, hotbar, mira | ✅ |
 | Extra | Multijugador: jugar en el mismo mundo desde otra computadora con un código | ✅ |
-| 5 | Guardado en IndexedDB y menú de mundos | ⏳ |
+| 5 | Guardado en IndexedDB y menú de mundos | ✅ |
 | 6 | Ciclo día/noche, oclusión ambiental, sonidos, opciones | ⏳ |
 | 7 | Rendimiento: Web Workers, cola de chunks priorizada | ⏳ |
 
@@ -51,12 +51,12 @@ npm run preview   # sirve el build de producción para probarlo
 
 `npm run dev` muestra en la consola la dirección para abrir el juego, por ejemplo `http://localhost:5173/megabrick/`.
 
-### Semilla y distancia de render
+### Opciones en la dirección
 
-Por ahora se eligen en la dirección del juego. El menú de mundos llega en la etapa 5 y el de opciones en la 6.
+La semilla se elige al crear un mundo (**Nuevo mundo**). La distancia de render, por ahora, va en la dirección del juego; el menú de opciones llega en la etapa 6.
 
-- `?semilla=lo-que-quieras`: la misma semilla genera siempre el mismo mundo. Acepta texto o un número. Sin este parámetro se usa `megabrick`.
 - `?distancia=8`: distancia de render en chunks, de 2 a 16. Por defecto es 6.
+- `?semilla=lo-que-quieras`: abre un mundo nuevo con esa semilla en vez del último mundo guardado. La misma semilla genera siempre el mismo terreno. Acepta texto o un número.
 
 Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
 
@@ -64,7 +64,7 @@ Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
 
 | Tecla | Acción |
 |---|---|
-| Clic en **Jugar** | Empezar a jugar (captura el mouse) |
+| Clic en **Jugar** o **Continuar** | Empezar a jugar o seguir el último mundo (captura el mouse) |
 | Clic en **Continuar** o en cualquier parte (en pausa) | Volver al juego |
 | **W A S D** | Moverse |
 | **Mouse** | Mirar |
@@ -94,15 +94,29 @@ Ejemplo: `http://localhost:5173/megabrick/?semilla=islas&distancia=8`.
 - **Hotbar:** tiene 9 casillas abajo de la pantalla: césped, tierra, piedra, tablones, ladrillo de piedra, vidrio, tronco, follaje y arena. El bloque elegido se ve en la mano, en primera persona y también en el personaje en tercera persona.
 - **Mallas:** al cambiar un bloque se rearma enseguida solo la malla de su chunk, y la del chunk vecino si el bloque está en el borde.
 - **Agua:** si rompés un bloque con agua arriba o a un costado, el hueco se llena de agua. Por ahora el agua no fluye.
-- **Tus cambios se recuerdan:** se guardan como diferencias respecto del terreno generado. Si te alejás y el chunk se descarga, al volver tu construcción sigue ahí. Hasta la etapa 5, que agrega el guardado, se pierden al recargar la página. Ese registro es lo que se guarda en la etapa 5 y lo que se comparte en el multijugador.
+- **Tus cambios se recuerdan:** se guardan como diferencias respecto del terreno generado. Si te alejás y el chunk se descarga, al volver tu construcción sigue ahí. Ese registro es lo que se guarda en el navegador y lo que se comparte en el multijugador.
 - **Mira:** en primera persona y en tercera desde atrás marca el bloque apuntado. En la vista de frente se oculta.
+
+## Guardado
+
+Los mundos se guardan en el navegador (IndexedDB), en la misma computadora.
+
+- **Inicio:** **Continuar** abre el último mundo jugado. La primera vez dice **Jugar** y crea «Mundo 1». **Nuevo mundo** pide un nombre y una semilla opcional; si la semilla queda vacía, sale una al azar. **Mis mundos** muestra la lista para abrir o borrar mundos. Borrar pide confirmación con un segundo clic.
+- **Cuándo se guarda:** cada 30 segundos, al pausar, al cambiar de mundo, al ocultar la pestaña y con **Guardar y salir** (en la pausa), que además vuelve al inicio. En la pausa se ve si el mundo quedó guardado.
+- **Qué se guarda:** el nombre, la semilla, dónde está el jugador (y si vuela), la hotbar y **solo los chunks que cambiaron**, como diferencias con el terreno generado. El resto se vuelve a generar igual con la semilla. Cada guardado escribe solo los chunks que cambiaron desde el anterior.
+- **Con el multijugador:** el mundo de una partida lo guarda quien la creó, incluido lo que construyen los invitados. Quien entra como invitado no lo guarda. Si sale de la partida, o si se va quien la creó, y sigue jugando, el mundo queda como propio, con el nombre «Mundo de Ana», por ejemplo. Durante una partida no se puede cambiar de mundo.
+
+**Límites.**
+- Los mundos quedan en ese navegador y esa computadora. Si se borran los datos del sitio, se borran los mundos.
+- Conviene abrir cada mundo en una sola pestaña a la vez: dos pestañas con el mismo mundo se pisan al guardar.
+- Si el navegador no deja guardar (algunos modos privados), se puede jugar igual y la pausa lo avisa.
 
 ## Multijugador
 
 Podés jugar en el mismo mundo con amigos, cada uno desde su computadora:
 
 1. Una persona toca **Multijugador → Crear partida** y recibe un código, por ejemplo `K7Q-X2M`. Puede copiarlo y mandarlo por cualquier chat. El botón **Multijugador** está en la pantalla de inicio y también en la pausa: así se puede invitar a alguien a un mundo en el que ya se viene jugando.
-2. Las demás tocan **Multijugador**, escriben el código en **Unirse** y entran a jugar. Reciben el mundo de quien creó la partida: misma semilla y mismos bloques cambiados. Aparecen al lado de quien la creó. Ese mundo reemplaza al propio: si ya habían construido algo, el juego pregunta antes, porque se pierde (el guardado llega en la etapa 5).
+2. Las demás tocan **Multijugador**, escriben el código en **Unirse** y entran a jugar. Reciben el mundo de quien creó la partida: misma semilla y mismos bloques cambiados. Aparecen al lado de quien la creó. Antes de cambiar de mundo, el propio se guarda.
 3. Cada uno ve a los demás con su personaje, su color y su nombre arriba de la cabeza. Arriba a la derecha está la lista de jugadores. En la pausa están el código y el botón para copiarlo.
 4. Lo que rompe o pone cualquiera aparece en las computadoras de todos.
 5. **Salir de la partida** (en el panel de Multijugador) corta la conexión y deja seguir jugando solo en el mismo mundo. Cerrar el panel mientras se está conectando cancela la conexión.
@@ -180,13 +194,15 @@ src/
     Hotbar.js           → las 9 casillas de bloques
     Menu.js             → pantalla de inicio (con selector de color) y menú de pausa
     MultiplayerMenu.js  → panel de multijugador, lista de jugadores y datos en la pausa
+    WorldsMenu.js       → Continuar/Jugar, nuevo mundo, lista de mundos (jugar y borrar) y estado del guardado
   net/
     protocol.js         → códigos de partida, mensajes y validación de lo que llega por la red
     Session.js          → conexión WebRTC con PeerJS (anfitrión e invitados)
     Multiplayer.js      → estado de los jugadores y cambios de bloques compartidos
   save/
     Preferences.js      → preferencias del jugador (color del personaje y nombre)
-    Storage.js          → (etapa 5) guardado en IndexedDB
+    SaveStore.js        → base IndexedDB: registro de cada mundo y sus chunks cambiados
+    WorldSaves.js       → mundo actual, autoguardado, cargar, borrar y copias de partidas
 ```
 
 ### Bloques

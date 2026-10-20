@@ -50,10 +50,12 @@ export class World {
      * Cambios hechos por los jugadores, como diferencias respecto del
      * terreno generado: "cx,cz" → Map(índice del bloque → ID). Se vuelven a
      * aplicar si el chunk se descarga y se genera de nuevo, y son lo que se
-     * guarda (etapa 5) y lo que se comparte en el multijugador.
+     * guarda en el navegador y lo que se comparte en el multijugador.
      * @type {Map<string, Map<number, number>>}
      */
     this.edits = new Map();
+    /** Claves de los chunks con cambios que todavía no se guardaron. */
+    this.unsaved = new Set();
     /** Funciones que se llaman con cada cambio: ({x, y, z, id}) => void. */
     this.editListeners = new Set();
     this.setRenderDistance(renderDistance);
@@ -195,6 +197,7 @@ export class World {
       this.edits.set(key, chunkEdits);
     }
     chunkEdits.set(Chunk.index(toLocalCoord(x), y, toLocalCoord(z)), id);
+    this.unsaved.add(key);
 
     // Rearmar ya mismo lo afectado (el chunk y sus vecinos marcados).
     if (loaded) {
@@ -241,15 +244,39 @@ export class World {
   }
 
   /**
-   * Reemplaza los cambios de los jugadores (formato de exportEdits). Se usa
-   * antes de cargar chunks, al unirse a una partida o al cargar un mundo.
-   * Los valores inválidos se ignoran.
+   * Cambios de algunos chunks para guardar: [[clave, Uint16Array], ...] con
+   * [índice, id, índice, id, ...] (índice < 32768 e id < 256: entran en 16 bits).
+   * @param {Iterable<string>} keys claves de los chunks
+   */
+  exportChunkEdits(keys) {
+    const out = [];
+    for (const key of keys) {
+      const chunkEdits = this.edits.get(key);
+      if (!chunkEdits) continue;
+      const flat = new Uint16Array(chunkEdits.size * 2);
+      let i = 0;
+      for (const [index, id] of chunkEdits) {
+        flat[i++] = index;
+        flat[i++] = id;
+      }
+      out.push([key, flat]);
+    }
+    return out;
+  }
+
+  /**
+   * Reemplaza los cambios de los jugadores (formato de exportEdits, con
+   * listas comunes o Uint16Array). Se usa antes de cargar chunks: al unirse
+   * a una partida o al cargar un mundo guardado. Lo cargado cuenta como ya
+   * guardado. Los valores inválidos se ignoran.
    */
   importEdits(data) {
     this.edits.clear();
+    this.unsaved.clear();
     if (!Array.isArray(data)) return;
     for (const entry of data) {
-      if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !Array.isArray(entry[1])) continue;
+      if (!Array.isArray(entry) || typeof entry[0] !== 'string') continue;
+      if (!Array.isArray(entry[1]) && !(entry[1] instanceof Uint16Array)) continue;
       if (!/^-?\d+,-?\d+$/.test(entry[0])) continue;
       const chunkEdits = new Map();
       const flat = entry[1];

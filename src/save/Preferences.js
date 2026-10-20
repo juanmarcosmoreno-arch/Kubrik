@@ -2,7 +2,7 @@
 //
 // Se guardan en localStorage del navegador. Si no está disponible (modo
 // privado, almacenamiento bloqueado) se sigue jugando con los valores por
-// defecto. El guardado de mundos de la etapa 5 va a usar IndexedDB.
+// defecto. Los mundos se guardan aparte, en IndexedDB (SaveStore.js).
 
 const PREFIX = 'megabrick.';
 

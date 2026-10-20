@@ -17,13 +17,15 @@ import { loadPreference, savePreference } from './save/Preferences.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Hud } from './ui/Hud.js';
 import { Menu } from './ui/Menu.js';
-import { Hotbar, HOTBAR_SIZE } from './ui/Hotbar.js';
+import { DEFAULT_HOTBAR, Hotbar, HOTBAR_SIZE } from './ui/Hotbar.js';
 import { BlockOutline } from './render/BlockOutline.js';
 import { HeldItem } from './render/HeldItem.js';
 import { getBlockGeometry } from './render/blockGeometry.js';
 import { BlockInteraction } from './player/Interaction.js';
 import { Multiplayer } from './net/Multiplayer.js';
 import { MultiplayerMenu } from './ui/MultiplayerMenu.js';
+import { WorldSaves } from './save/WorldSaves.js';
+import { WorldsMenu } from './ui/WorldsMenu.js';
 
 // Paso de tiempo máximo por frame: si el navegador se traba, el juego no
 // "salta" de golpe.
@@ -35,9 +37,10 @@ const BASE_FOV = 75;
 const SPRINT_FOV_FACTOR = 1.12;
 
 /**
- * Opciones que por ahora se eligen en la URL (el menú de mundos llega en la
- * etapa 5 y el de opciones en la 6):
- *   ?semilla=texto-o-número   misma semilla = mismo mundo
+ * Opciones que se pueden elegir en la URL (el menú de opciones llega en la
+ * etapa 6):
+ *   ?semilla=texto-o-número   abre un mundo nuevo con esa semilla (en vez
+ *                             del último mundo guardado)
  *   ?distancia=6              distancia de render en chunks (2 a 16)
  */
 function readUrlOptions() {
@@ -46,6 +49,7 @@ function readUrlOptions() {
   const distance = Number.parseInt(params.get('distancia') ?? '', 10);
   return {
     seedText,
+    seedGiven: Boolean(params.get('semilla')?.trim()),
     seed: parseSeed(seedText),
     renderDistance: Number.isFinite(distance) ? Math.max(2, Math.min(16, distance)) : 6,
   };
@@ -153,6 +157,29 @@ class Game {
       hudRoot: this.hud.root,
       onPauseMessage: (text) => this.menu.setMessage(text, true),
     });
+    this.multiplayerMenu.onBeforeJoin = () => this.beforeJoin();
+
+    // --- Mundos guardados ---
+    this.saves = new WorldSaves(this);
+    this.worldsMenu = new WorldsMenu(this.saves, {
+      canChangeWorld: () => !this.multiplayer.active && !this.multiplayer.connecting,
+      onPlayWorld: (id) => this.openWorld(id, { play: true }),
+      onNewWorld: (o) => this.newWorld(o),
+      onDeleteWorld: (id) => this.deleteWorld(id),
+    });
+    this.saves.onChange = () => this.worldsMenu.render();
+    this.saves.onNotice = (text) => this.hud.toast(text, 4);
+    // La lista de mundos depende de si hay partida (no se cambia de mundo
+    // mientras se comparte).
+    const renderMultiplayer = this.multiplayer.onChange;
+    this.multiplayer.onChange = () => {
+      renderMultiplayer();
+      this.worldsMenu.render();
+    };
+    document.getElementById('btn-save-exit').addEventListener('click', (e) => {
+      e.stopPropagation(); // en la pausa, un clic en el fondo vuelve al juego
+      this.saveAndExit();
+    });
     this.multiplayer.onNotice = (text, isWarning) => {
       this.hud.toast(text, 3);
       this.multiplayerMenu.notice(text, isWarning);
@@ -174,17 +201,41 @@ class Game {
       e.preventDefault();
       e.returnValue = '';
     });
+    // Al ocultar la pestaña (o antes de cerrarla) se guarda lo que haya.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && this.worldInUse) this.saves.save();
+    });
+    this.saves.init().then(() => this.openLastWorld());
     this.watchPixelRatio();
     this.onResize();
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
+  /** ¿Se está en un mundo (jugando o en pausa)? */
+  get inGame() {
+    return this.state !== STATE.TITLE;
+  }
+
+  /** ¿Se está usando el mundo (en juego o compartiéndolo)? Entonces se autoguarda. */
+  get worldInUse() {
+    return this.inGame || this.multiplayer.role === 'host';
+  }
+
   /**
    * Cambia el mundo: otra semilla y, opcionalmente, cambios de bloques ya
-   * hechos (al unirse a una partida y, en la etapa 5, al cargar un mundo).
-   * @param {{seed: number, seedText?: string, edits?: unknown, spawn?: {x: number, y: number, z: number}}} o
+   * hechos (al cargar un mundo guardado o al unirse a una partida). Antes se
+   * guarda el mundo que se deja.
+   * @param {object} o
+   * @param {number} o.seed
+   * @param {string} [o.seedText]
+   * @param {unknown} [o.edits] cambios (formato de World.exportEdits)
+   * @param {{x: number, y: number, z: number}} [o.spawn] dónde aparece (si no, se busca)
+   * @param {{yaw: number, pitch: number, flying?: boolean}} [o.look] hacia dónde mira y si vuela
+   * @param {{slots: number[], selected: number}} [o.hotbar]
+   * @param {object} [o.save] datos del guardado de este mundo (ver WorldSaves.setCurrent)
    */
-  loadWorld({ seed, seedText, edits, spawn }) {
+  loadWorld({ seed, seedText, edits, spawn, look, hotbar, save }) {
+    this.saves.saveIfWorthIt();
     this.world.dispose();
     this.scene.remove(this.world.group);
     this.options.seed = seed;
@@ -198,8 +249,130 @@ class Game {
     this.interaction.world = this.world;
     this.applyRenderDistance();
     const s = spawn ?? this.generator.findSpawn();
-    this.player.spawn(s.x, s.y, s.z, this.player.yaw, this.player.pitch);
+    this.player.spawn(s.x, s.y, s.z, look?.yaw ?? this.player.yaw, look?.pitch ?? this.player.pitch);
+    this.player.setFlying(Boolean(look?.flying));
+    if (hotbar) this.hotbar.setSlots(hotbar.slots, hotbar.selected);
+    this.saves.setCurrent(save);
     this.world.preload(s.x, s.z, 2);
+  }
+
+  /** Un mundo leído del guardado (WorldSaves.load) pasa a ser el actual. */
+  applySavedWorld(data) {
+    this.loadWorld({
+      seed: data.seed,
+      seedText: data.seedText,
+      edits: data.edits,
+      spawn: data.player,
+      look: data.player ?? { yaw: 0, pitch: -0.1 },
+      hotbar: data.hotbar ?? { slots: DEFAULT_HOTBAR, selected: 0 },
+      save: data.save,
+    });
+  }
+
+  /**
+   * Al abrir el juego se prepara el último mundo jugado, para "Continuar".
+   * No si la URL pide una semilla, ni si el jugador ya eligió otra cosa.
+   */
+  async openLastWorld() {
+    const last = this.saves.worlds[0];
+    if (!last || this.options.seedGiven) return;
+    const idle = () =>
+      this.state === STATE.TITLE &&
+      !this.multiplayer.active &&
+      !this.multiplayer.connecting &&
+      this.saves.current.id === null &&
+      this.world.edits.size === 0;
+    if (!idle()) return;
+    this.worldsMenu.setBusy(true);
+    try {
+      const data = await this.saves.load(last.id);
+      if (data && idle()) this.applySavedWorld(data);
+    } catch {
+      // Si no se pudo leer, se queda el mundo nuevo.
+    }
+    this.worldsMenu.setBusy(false);
+  }
+
+  /** Abre un mundo guardado (y, con `play`, entra a jugarlo). */
+  async openWorld(id, { play = false } = {}) {
+    if (this.saves.current.id !== id) {
+      this.worldsMenu.setBusy(true);
+      try {
+        const data = await this.saves.load(id);
+        if (!data) throw new Error('No se encontró ese mundo.');
+        this.applySavedWorld(data);
+      } finally {
+        this.worldsMenu.setBusy(false);
+      }
+    }
+    if (play) this.controls.lock();
+  }
+
+  /** Crea un mundo nuevo (semilla al azar si no se elige) y entra a jugarlo. */
+  newWorld({ name, seedText }) {
+    const seed = seedText ? parseSeed(seedText) : crypto.getRandomValues(new Uint32Array(1))[0];
+    this.loadWorld({
+      seed,
+      seedText: seedText || String(seed),
+      look: { yaw: 0, pitch: -0.1 },
+      hotbar: { slots: DEFAULT_HOTBAR, selected: 0 },
+      save: { name },
+    });
+    this.controls.lock();
+  }
+
+  /** Borra un mundo guardado. Si era el abierto, se abre otro (o uno nuevo). */
+  async deleteWorld(id) {
+    const wasCurrent = this.saves.current.id === id;
+    await this.saves.delete(id);
+    if (!wasCurrent) return;
+    const next = this.saves.worlds.find((w) => w.id !== id);
+    try {
+      if (next) {
+        await this.openWorld(next.id);
+        return;
+      }
+    } catch {
+      // Si no se pudo abrir el siguiente, queda uno nuevo.
+    }
+    const seed = crypto.getRandomValues(new Uint32Array(1))[0];
+    this.loadWorld({
+      seed,
+      seedText: String(seed),
+      look: { yaw: 0, pitch: -0.1 },
+      hotbar: { slots: DEFAULT_HOTBAR, selected: 0 },
+    });
+  }
+
+  /** Pausa → "Guardar y salir": guarda, deja la partida (si hay) y vuelve al inicio. */
+  saveAndExit() {
+    const mp = this.multiplayer;
+    if (
+      mp.role === 'host' &&
+      mp.players.size > 0 &&
+      !window.confirm('Se cierra la partida para todos los que están jugando. ¿Salir igual?')
+    ) {
+      return;
+    }
+    if (mp.active) mp.leave(); // como invitado, el mundo queda como propio y se guarda
+    this.saves.save();
+    this.state = STATE.TITLE;
+    this.interaction.release();
+    this.hud.setVisible(false);
+    this.menu.showTitle();
+    this.worldsMenu.render();
+  }
+
+  /**
+   * Antes de unirse a una partida: se va a jugar en el mundo de quien la
+   * creó. El propio se guarda solo; si no se puede guardar y tiene cambios,
+   * se pregunta.
+   */
+  beforeJoin() {
+    if (this.saves.canSave || this.world.edits.size === 0) return true;
+    return window.confirm(
+      'Vas a jugar en el mundo de quien creó la partida y lo que construiste en este mundo se pierde (este navegador no deja guardar). ¿Seguir?',
+    );
   }
 
   /**
@@ -240,11 +413,14 @@ class Game {
       this.state = STATE.PLAYING;
       this.menu.hideAll();
       this.hud.setVisible(true);
+      // Un mundo nuevo se guarda al empezar a jugarlo.
+      if (this.saves.current.id === null) this.saves.save();
     } else if (this.state === STATE.PLAYING) {
-      // Esc (o perder el foco) suelta el mouse: pausa.
+      // Esc (o perder el foco) suelta el mouse: pausa (y se guarda).
       this.state = STATE.PAUSED;
       this.interaction.release();
       this.menu.showPause();
+      this.saves.save();
     }
   }
 
@@ -314,6 +490,7 @@ class Game {
     // mientras se ve la pantalla de inicio, ya se va cargando).
     this.world.update(this.player.position.x, this.player.position.z);
     this.multiplayer.update(dt);
+    this.saves.update(dt, this.worldInUse);
 
     if (this.state === STATE.TITLE) {
       // Fondo negro como el del logo y el personaje en su recuadro.
